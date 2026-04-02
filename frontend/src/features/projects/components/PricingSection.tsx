@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Calculator, Loader2, AlertCircle, Download, FileText, RefreshCw, Eye } from 'lucide-react';
+import { Calculator, Loader2, AlertCircle, Download, FileText, RefreshCw, Eye, TriangleAlert } from 'lucide-react';
 
 import { pricingApi } from '../api/pricing.api';
 import { quotationApi } from '../api/quotation.api';
@@ -165,7 +165,9 @@ export function PricingSection({ projectId, projectName }: PricingSectionProps) 
       rows.push('');
       rows.push(csvEscape(label));
       for (const item of items) {
-        const codes = item.product_details.map((d) => d.code).join(' | ');
+        const codes = item.product_details
+              .map((d) => d.missing ? `${d.code} (MISSING)` : d.code)
+              .join(' | ');
         rows.push(
           [
             String(item.row_number),
@@ -368,34 +370,54 @@ export function PricingSection({ projectId, projectName }: PricingSectionProps) 
 
           {/* Section 1: Device Selection */}
           {deviceItems.length > 0 && (
-            <div className="rounded-lg border border-gray-200 bg-white shadow-sm overflow-hidden">
-              <div className="border-b border-gray-200 bg-gray-50 px-6 py-3">
-                <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">
-                  Device Selection
-                </h4>
+            <>
+              {deviceItems.some((i) => i.missing_products.length > 0) && (
+                <div className="flex items-center gap-2 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
+                  <TriangleAlert className="h-4 w-4 flex-shrink-0" />
+                  <span>
+                    Some device items have missing products — prices shown as SAR 0.00.
+                  </span>
+                </div>
+              )}
+              <div className="rounded-lg border border-gray-200 bg-white shadow-sm overflow-hidden">
+                <div className="border-b border-gray-200 bg-gray-50 px-6 py-3">
+                  <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">
+                    Device Selection
+                  </h4>
+                </div>
+                <PricingTable
+                  items={deviceItems}
+                  margin={margin}
+                  calcWithMargin={calcWithMargin}
+                />
               </div>
-              <PricingTable
-                items={deviceItems}
-                margin={margin}
-                calcWithMargin={calcWithMargin}
-              />
-            </div>
+            </>
           )}
 
           {/* Section 2: Panel Configuration */}
           {panelItems.length > 0 && (
-            <div className="rounded-lg border border-gray-200 bg-white shadow-sm overflow-hidden">
-              <div className="border-b border-gray-200 bg-gray-50 px-6 py-3">
-                <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">
-                  Panel Configuration
-                </h4>
+            <>
+              {panelItems.some((i) => i.missing_products.length > 0) && (
+                <div className="flex items-center gap-2 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
+                  <TriangleAlert className="h-4 w-4 flex-shrink-0" />
+                  <span>
+                    Some panel items have missing products — prices shown as SAR 0.00.
+                  </span>
+                </div>
+              )}
+              <div className="rounded-lg border border-gray-200 bg-white shadow-sm overflow-hidden">
+                <div className="border-b border-gray-200 bg-gray-50 px-6 py-3">
+                  <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">
+                    Panel Configuration
+                  </h4>
+                </div>
+                <PricingTable
+                  items={panelItems}
+                  margin={margin}
+                  calcWithMargin={calcWithMargin}
+                />
               </div>
-              <PricingTable
-                items={panelItems}
-                margin={margin}
-                calcWithMargin={calcWithMargin}
-              />
-            </div>
+            </>
           )}
 
           {/* Totals */}
@@ -490,9 +512,12 @@ function PricingTable({
         </thead>
         <tbody className="divide-y divide-gray-100">
           {items.map((item) => {
-            const codes = item.product_details.map((d) => d.code).join(', ');
+            const hasMissing = item.missing_products.length > 0;
             return (
-              <tr key={item.id} className="hover:bg-gray-50/60 transition-colors">
+              <tr
+                key={item.id}
+                className={`transition-colors ${hasMissing ? 'bg-red-50/60 hover:bg-red-50' : 'hover:bg-gray-50/60'}`}
+              >
                 <td className="py-3.5 pl-6 pr-2 text-gray-400 tabular-nums">
                   {item.row_number}
                 </td>
@@ -500,9 +525,23 @@ function PricingTable({
                   <div className="text-gray-800">
                     {item.description || '\u2014'}
                   </div>
-                  {codes && (
-                    <div className="mt-1 text-xs text-gray-400 font-mono">
-                      {codes}
+                  {item.product_details.length > 0 && (
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {item.product_details.map((d) => (
+                        <span
+                          key={d.code}
+                          className={`inline-flex items-center rounded px-1.5 py-0.5 text-xs font-mono ${
+                            d.missing
+                              ? 'bg-red-100 text-red-700'
+                              : 'bg-gray-100 text-gray-500'
+                          }`}
+                        >
+                          {d.code}
+                          {d.missing && (
+                            <span className="ml-1 text-[10px] font-sans font-medium">(missing)</span>
+                          )}
+                        </span>
+                      ))}
                     </div>
                   )}
                 </td>

@@ -1,6 +1,7 @@
 export interface ProductDetail {
   code: string;
   price_sar: number;
+  missing?: boolean;
 }
 
 export interface PricingItem {
@@ -12,6 +13,7 @@ export interface PricingItem {
   unit_cost_sar: number;
   total_sar: number;
   product_details: ProductDetail[];
+  missing_products: string[];
 }
 
 export interface PricingResponse {

@@ -96,7 +96,8 @@ class PricingService:
         result = await self.db.execute(
             text("""
                 SELECT id, section, row_number, description, quantity,
-                       unit_cost_sar, total_sar, product_details, source_id
+                       unit_cost_sar, total_sar, product_details, source_id,
+                       updated_at
                 FROM pricing_items
                 WHERE tenant_id = :tid AND project_id = :pid
                 ORDER BY section, row_number
@@ -108,8 +109,18 @@ class PricingService:
             return None
 
         items: list[PricingItem] = []
+        max_updated_at = None
         for row in rows:
             details = row[7] if row[7] else []
+            product_details = [
+                ProductDetail(
+                    code=d["code"],
+                    price_sar=d["price_sar"],
+                    missing=d.get("missing", False),
+                )
+                for d in details
+            ]
+            missing_products = [d.code for d in product_details if d.missing]
             items.append(
                 PricingItem(
                     id=str(row[0]),
@@ -119,12 +130,19 @@ class PricingService:
                     quantity=float(row[4]),
                     unit_cost_sar=float(row[5]),
                     total_sar=float(row[6]),
-                    product_details=[
-                        ProductDetail(code=d["code"], price_sar=d["price_sar"])
-                        for d in details
-                    ],
+                    product_details=product_details,
+                    missing_products=missing_products,
                 )
             )
+            if row[9] is not None:
+                ts = row[9]
+                if max_updated_at is None or ts > max_updated_at:
+                    max_updated_at = ts
+
+        calculated_at = (
+            max_updated_at.isoformat() if max_updated_at else
+            datetime.now(timezone.utc).isoformat()
+        )
 
         device_subtotal = sum(i.total_sar for i in items if i.section == "device")
         panel_subtotal = sum(i.total_sar for i in items if i.section == "panel")
@@ -132,7 +150,7 @@ class PricingService:
         return PricingResponse(
             project_id=str(project_id),
             project_name=project_name,
-            calculated_at=items[0].id if items else "",
+            calculated_at=calculated_at,
             usd_to_sar_rate=float(USD_TO_SAR),
             items=items,
             device_subtotal=device_subtotal,
@@ -166,72 +184,82 @@ class PricingService:
         project_id: uuid.UUID,
     ) -> list[PricingItem]:
         """
-        Fetch finalized device selections, join through selectable_products
-        to get product prices. Group by selectable.
+        Fetch finalized device selections keyed by bds.id (one row per BOQ item).
+        Uses BOQ item description, LEFT JOINs products to detect missing ones.
         """
         result = await self.db.execute(
             text("""
                 SELECT
-                    bds.selectable_id,
-                    s.description AS selectable_description,
+                    bds.id AS bds_id,
+                    bi.description AS boq_description,
                     bi.quantity AS boq_quantity,
                     p.code AS product_code,
                     p.price AS product_price_usd
                 FROM boq_device_selections bds
                 JOIN boq_items bi ON bi.id = bds.boq_item_id
-                JOIN selectables s ON s.id = bds.selectable_id
                 JOIN selectable_products sp ON sp.selectable_id = bds.selectable_id
-                JOIN products p ON p.id = sp.product_id
+                LEFT JOIN products p ON p.id = sp.product_id
                 WHERE bds.tenant_id = :tid
                   AND bds.project_id = :pid
                   AND bds.status = 'finalized'
                   AND bds.selectable_id IS NOT NULL
-                ORDER BY s.description, p.code
+                ORDER BY bds.created_at
             """),
             {"tid": tenant_id, "pid": project_id},
         )
         rows = result.fetchall()
 
-        # Group by selectable_id
+        # Group by bds.id — each BOQ item becomes its own pricing row
         groups: dict[str, dict] = {}
         for row in rows:
-            sel_id = str(row[0])
-            if sel_id not in groups:
-                groups[sel_id] = {
-                    "selectable_id": sel_id,
+            bds_id = str(row[0])
+            if bds_id not in groups:
+                groups[bds_id] = {
+                    "bds_id": bds_id,
                     "description": row[1],
                     "quantity": float(row[2]) if row[2] else 1,
                     "products": {},
                 }
-            # Deduplicate products (same selectable may appear for multiple BOQ items)
             code = row[3]
-            if code not in groups[sel_id]["products"]:
+            if code and code not in groups[bds_id]["products"]:
                 price_usd = Decimal(str(row[4])) if row[4] else Decimal("0")
                 price_sar = _round_sar(price_usd * USD_TO_SAR)
-                groups[sel_id]["products"][code] = float(price_sar)
+                missing = row[4] is None
+                groups[bds_id]["products"][code] = {
+                    "price_sar": float(price_sar),
+                    "missing": missing,
+                }
 
         items: list[PricingItem] = []
         row_num = 0
-        for sel_id, group in groups.items():
+        for bds_id, group in groups.items():
             row_num += 1
             products = group["products"]
-            unit_cost_sar = float(_round_sar(sum(Decimal(str(v)) for v in products.values())))
+            unit_cost_sar = float(
+                _round_sar(sum(Decimal(str(v["price_sar"])) for v in products.values()))
+            )
             quantity = group["quantity"]
-            total_sar = float(_round_sar(Decimal(str(unit_cost_sar)) * Decimal(str(quantity))))
+            total_sar = float(
+                _round_sar(Decimal(str(unit_cost_sar)) * Decimal(str(quantity)))
+            )
+
+            product_details = [
+                ProductDetail(code=code, price_sar=info["price_sar"], missing=info["missing"])
+                for code, info in products.items()
+            ]
+            missing_products = [d.code for d in product_details if d.missing]
 
             items.append(
                 PricingItem(
-                    id=sel_id,
+                    id=bds_id,
                     section="device",
                     row_number=row_num,
                     description=group["description"],
                     quantity=quantity,
                     unit_cost_sar=unit_cost_sar,
                     total_sar=total_sar,
-                    product_details=[
-                        ProductDetail(code=code, price_sar=price)
-                        for code, price in products.items()
-                    ],
+                    product_details=product_details,
+                    missing_products=missing_products,
                 )
             )
 
@@ -243,8 +271,9 @@ class PricingService:
         project_id: uuid.UUID,
     ) -> list[PricingItem]:
         """
-        Fetch panel selections, join to products for prices.
-        Multiply by panel_groups.quantity if grouped.
+        Fetch panel selections, LEFT JOIN to products for prices.
+        Missing products (code='NONE' or not in DB) appear with price 0 and missing flag.
+        Quantity is used as-is (already pre-multiplied by panel selection service).
         """
         result = await self.db.execute(
             text("""
@@ -253,14 +282,12 @@ class PricingService:
                     ps.product_code,
                     p.description AS product_description,
                     p.price AS product_price_usd,
-                    ps.quantity AS ps_quantity,
-                    pg.quantity AS group_quantity
+                    ps.quantity AS ps_quantity
                 FROM panel_selections ps
-                JOIN products p ON p.code = ps.product_code
-                LEFT JOIN panel_groups pg ON pg.id = ps.panel_group_id
+                LEFT JOIN products p ON p.code = ps.product_code
                 WHERE ps.tenant_id = :tid
                   AND ps.project_id = :pid
-                ORDER BY ps.product_code
+                ORDER BY ps.created_at
             """),
             {"tid": tenant_id, "pid": project_id},
         )
@@ -272,14 +299,25 @@ class PricingService:
             row_num += 1
             ps_id = str(row[0])
             product_code = row[1]
-            description = row[2]
-            price_usd = Decimal(str(row[3])) if row[3] else Decimal("0")
-            ps_quantity = int(row[4]) if row[4] else 1
-            group_quantity = int(row[5]) if row[5] else 1
+            product_description = row[2]
+            price_usd_raw = row[3]
+            quantity = int(row[4]) if row[4] else 1
+
+            missing = product_description is None  # product not found in DB
+            if missing:
+                description = product_code  # fallback to the code itself
+                price_usd = Decimal("0")
+            else:
+                description = product_description
+                price_usd = Decimal(str(price_usd_raw)) if price_usd_raw else Decimal("0")
 
             unit_cost_sar = float(_round_sar(price_usd * USD_TO_SAR))
-            total_quantity = ps_quantity * group_quantity
-            total_sar = float(_round_sar(Decimal(str(unit_cost_sar)) * Decimal(str(total_quantity))))
+            total_sar = float(_round_sar(Decimal(str(unit_cost_sar)) * Decimal(str(quantity))))
+
+            product_detail = ProductDetail(
+                code=product_code, price_sar=unit_cost_sar, missing=missing,
+            )
+            missing_products = [product_code] if missing else []
 
             items.append(
                 PricingItem(
@@ -287,12 +325,11 @@ class PricingService:
                     section="panel",
                     row_number=row_num,
                     description=description,
-                    quantity=total_quantity,
+                    quantity=quantity,
                     unit_cost_sar=unit_cost_sar,
                     total_sar=total_sar,
-                    product_details=[
-                        ProductDetail(code=product_code, price_sar=unit_cost_sar),
-                    ],
+                    product_details=[product_detail],
+                    missing_products=missing_products,
                 )
             )
 
@@ -301,7 +338,10 @@ class PricingService:
 
 def _product_details_json(details: list[ProductDetail]) -> str:
     import json
-    return json.dumps([{"code": d.code, "price_sar": d.price_sar} for d in details])
+    return json.dumps([
+        {"code": d.code, "price_sar": d.price_sar, "missing": d.missing}
+        for d in details
+    ])
 
 
 def _is_uuid(value: str) -> bool:

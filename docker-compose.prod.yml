@@ -20,11 +20,6 @@ services:
     command: >
       sh -c "
         alembic upgrade head &&
-        python seeds.py &&
-        python seeds/prompt_questions.py &&
-        python seeds/seed_global_products.py /ragm-root/products.xlsx &&
-        python seeds/seed_detection_device_selectables.py '/ragm-root/detetction devices.xlsx' &&
-        python seeds/seed_notification_appliance_selectables.py '/ragm-root/notifications_with_subcategories.xlsx' &&
         uvicorn app.main:app --host 0.0.0.0 --port 3001
       "
 

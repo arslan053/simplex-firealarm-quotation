@@ -6,6 +6,7 @@ from pydantic import BaseModel
 class ProductDetail(BaseModel):
     code: str
     price_sar: float
+    missing: bool = False
 
 
 class PricingItem(BaseModel):
@@ -17,6 +18,7 @@ class PricingItem(BaseModel):
     unit_cost_sar: float
     total_sar: float
     product_details: list[ProductDetail]
+    missing_products: list[str] = []
 
 
 class PricingResponse(BaseModel):
