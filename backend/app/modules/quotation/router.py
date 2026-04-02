@@ -1,0 +1,114 @@
+from __future__ import annotations
+
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import Response
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.database import get_tenant_db
+from app.dependencies.auth import (
+    get_current_user,
+    require_role,
+    require_tenant_domain,
+    require_tenant_match,
+    UserContext,
+)
+
+from .schemas import GenerateQuotationRequest, QuotationDownloadResponse, QuotationResponse
+from .service import QuotationService
+
+router = APIRouter(
+    prefix="/api/projects/{project_id}/quotation",
+    tags=["quotation"],
+    dependencies=[
+        Depends(require_tenant_domain),
+        Depends(require_tenant_match),
+        require_role("admin", "employee"),
+    ],
+)
+
+
+@router.post("/generate", response_model=QuotationResponse)
+async def generate_quotation(
+    project_id: str,
+    body: GenerateQuotationRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_tenant_db),
+    user: UserContext = Depends(get_current_user),
+):
+    tenant = request.state.tenant
+    tenant_id = uuid.UUID(tenant["id"])
+    pid = uuid.UUID(project_id)
+    uid = uuid.UUID(user.id)
+
+    service = QuotationService(db)
+    return await service.generate(tenant_id, pid, uid, body)
+
+
+@router.get("", response_model=QuotationResponse)
+async def get_quotation(
+    project_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_tenant_db),
+    user: UserContext = Depends(get_current_user),
+):
+    tenant = request.state.tenant
+    tenant_id = uuid.UUID(tenant["id"])
+    pid = uuid.UUID(project_id)
+
+    service = QuotationService(db)
+    result = await service.get_quotation(tenant_id, pid)
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No quotation generated yet for this project.",
+        )
+    return result
+
+
+@router.get("/download", response_model=QuotationDownloadResponse)
+async def download_quotation(
+    project_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_tenant_db),
+    user: UserContext = Depends(get_current_user),
+):
+    tenant = request.state.tenant
+    tenant_id = uuid.UUID(tenant["id"])
+    pid = uuid.UUID(project_id)
+
+    service = QuotationService(db)
+    result = await service.get_download_url(tenant_id, pid)
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No quotation found for this project.",
+        )
+    return result
+
+
+@router.get("/preview")
+async def preview_quotation(
+    project_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_tenant_db),
+    user: UserContext = Depends(get_current_user),
+):
+    """Return the quotation as an inline PDF for browser viewing."""
+    tenant = request.state.tenant
+    tenant_id = uuid.UUID(tenant["id"])
+    pid = uuid.UUID(project_id)
+
+    service = QuotationService(db)
+    pdf_bytes = await service.get_preview_pdf(tenant_id, pid)
+    if pdf_bytes is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No quotation found for this project.",
+        )
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": "inline; filename=quotation.pdf"},
+    )

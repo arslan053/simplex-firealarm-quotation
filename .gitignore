@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Node
+node_modules/
+dist/
+
+# Environment (secrets - never commit)
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+*.swp
+
+# Docker volumes
+db/
+
+# Claude Code
+.claude/
+
+# Secrets
+GitHubtoken*.txt
+
+# Misc
+*.log
