@@ -19,7 +19,7 @@ class AnalysisAnswer(Base, UUIDPrimaryKey, TimestampMixin):
     question_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("prompt_questions.id"), nullable=False
     )
-    answer: Mapped[str] = mapped_column(String(10), nullable=False)
+    answer: Mapped[str] = mapped_column(Text, nullable=False)
     confidence: Mapped[str] = mapped_column(String(20), nullable=False)
     supporting_notes: Mapped[str] = mapped_column(Text, nullable=False)
     inferred_from: Mapped[str] = mapped_column(String(10), nullable=False)

@@ -346,7 +346,7 @@ async def get_answers(
         JOIN prompt_questions pq ON pq.id = aa.question_id
         WHERE aa.tenant_id = :tid
           AND aa.project_id = :pid
-          AND pq.category IN ('4007_panel_questions', '4100ES_panel_questions')
+          AND pq.category IN ('4007_panel_questions', '4100ES_panel_questions', 'multi_panel_questions')
         ORDER BY pq.question_no ASC
     """), {"tid": tenant_id, "pid": project_id})
     rows = result.fetchall()
@@ -488,7 +488,7 @@ async def _build_gate_result(
         JOIN prompt_questions pq ON pq.id = aa.question_id
         WHERE aa.tenant_id = :tid
           AND aa.project_id = :pid
-          AND pq.category = '4007_panel_questions'
+          AND pq.category IN ('4007_panel_questions', 'multi_panel_questions')
           AND pq.question_no IN (2, 3, 21)
     """), {"tid": tenant_id, "pid": project_id})
     for row in ans_result.fetchall():

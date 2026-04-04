@@ -12,7 +12,7 @@ from pathlib import Path
 
 from docx import Document
 from docx.enum.section import WD_ORIENT
-from docx.enum.table import WD_TABLE_ALIGNMENT
+from docx.enum.table import WD_ALIGN_VERTICAL, WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn, nsdecls
@@ -524,6 +524,7 @@ def _set_table_cell(
     bold: bool = False,
     align=None,
 ) -> None:
+    cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
     p = cell.paragraphs[0]
     if align:
         p.alignment = align

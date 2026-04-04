@@ -23,36 +23,40 @@ The system needs to handle each distinct panel line as its own **panel group**, 
 
 The existing panel selection pipeline is **production-ready and correct** for single-panel and same-type-panel scenarios. This enhancement MUST NOT change the existing behavior in any way.
 
-**Activation rule:** The new multi-panel-group logic ONLY activates when **ALL** of these conditions are true:
+**Activation rule:** The multi-panel-group logic ONLY activates when **ALL** of these conditions are true:
 
-1. The BOQ contains **multiple panel lines with different loop counts** (explicitly stated in BOQ text, e.g. "2 Loop panel", "4 Loop panel")
-2. Specs are **irrelevant** — only BOQ text matters for this detection
-3. Q2 (speakers/amplifiers) = **No**
-4. Q3 (telephone/FFT) = **No**
+1. **>= 2 distinct loop counts** detected from BOQ panel items — via LLM Q21 answer (primary) or regex fallback
+2. Q2 (speakers/amplifiers) = **No**
+3. Q3 (telephone/FFT) = **No**
+
+Detection priority: the LLM examines all BOQ items and extracts loop counts (handles word-based like "two loops", "dual loop"). If the LLM finds < 2 distinct loops, a regex fallback scans panel BOQ items for digit-based patterns ("2-loop", "4-loop").
 
 If ANY condition is not met, the **existing system runs unchanged**:
 
 ```
-BOQ has multiple panel lines with different loop counts?
+Q21 LLM found >= 2 distinct loop counts?
   |
-  +-- No  --> EXISTING SYSTEM (unchanged, zero modifications)
+  +-- No --> Regex fallback found >= 2 distinct loop counts?
+  |            |
+  |            +-- No  --> EXISTING SYSTEM (single-panel path)
+  |            +-- Yes --> continue below
   |
-  +-- Yes
+  +-- Yes --> continue below
        |
        Q2 (speakers) = Yes OR Q3 (telephone) = Yes?
          |
          +-- Yes --> ALL panels = 4100ES via EXISTING 4100ES path (unchanged)
          |
-         +-- No  --> NEW multi-panel-group logic (this enhancement)
+         +-- No  --> Multi-panel-group logic
 ```
 
 ---
 
 ## The Four Core Rules
 
-### Rule 1: Activation — BOQ Only, Specs Irrelevant
+### Rule 1: Activation — LLM Q21 Primary, Regex Fallback
 
-Only the BOQ text determines whether multi-panel-group mode activates. If the BOQ has panel lines with explicitly different loop counts (e.g. "2 Loop panel qty 1" and "6 Loop panel qty 16"), activate. If all panels are the same type or no loops are mentioned, the existing system handles it.
+The LLM answers Q21 with a JSON array of `{boq_item_id, loop_count}` entries extracted from BOQ panel items. The backend validates these against real BOQ data and checks for >= 2 distinct loop counts. If the LLM misses them (returns scalar, empty, or < 2 distinct), a regex fallback scans panel BOQ descriptions for digit-based loop patterns. If neither source finds >= 2 distinct loop counts, the existing single-panel system handles it.
 
 ### Rule 2: Speaker/Telephone Override — All 4100ES
 
@@ -129,7 +133,7 @@ qty_nac = math.ceil(main_panel_loops / 6)
 
 ---
 
-## Current System Flow (Before This Enhancement)
+## Single-Panel Flow (When Multi-Group Does NOT Activate)
 
 ```
 1. BOQ Extraction          --> boq_items table (panels categorized as 'panel')
@@ -137,7 +141,7 @@ qty_nac = math.ceil(main_panel_loops / 6)
 3. Device Selection        --> boq_device_selections, network_type, notification_protocol
 4. Panel Selection         --> SINGLE panel type for entire project
    a. Compute: total_devices / panel_count = devices_per_panel
-   b. Q21: single loop count (largest mentioned)
+   b. Q21: per-item loop extraction → _derive_max_loop_count() for single value
    c. Check 4100ES triggers (devices>=1000, speakers, telephone, loops>6)
    d. If no triggers: map devices_per_panel to 4007/4010 range
    e. Build ONE product list for all panels
@@ -146,28 +150,34 @@ qty_nac = math.ceil(main_panel_loops / 6)
 
 ---
 
-## Proposed Flow (After This Enhancement)
+## Implemented Flow
 
 ```
 1. BOQ Extraction          --> boq_items table (panels categorized as 'panel')
 2. Spec Analysis           --> protocol, panel count
-   + NEW: Extract panel groups with loop counts from BOQ panel items
 3. Device Selection        --> boq_device_selections (unchanged)
 4. Panel Selection
-   a. Check: do panel groups exist with different loop counts?
+   a. LLM call answers all questions (Q2, Q3, Q14, Q17, Q18, Q20, Q21, Q201-Q206)
+   b. Q21 answer is parsed as a JSON array of per-item loop extractions
+      via _parse_q21_loop_items() → list of {boq_item_id, description, loop_count, quantity}
+   c. loop_count = max(loop_counts) via _derive_max_loop_count() (for 4100ES entry gate)
+   d. Check Q2/Q3 gates first
+   e. Multi-group detection (LLM primary, regex fallback):
       |
-      +-- No  --> EXISTING path runs (steps b-e above, unchanged)
+      +-- Q21 found >= 2 distinct loop counts? --> Use LLM results
       |
-      +-- Yes --> Check Q2/Q3
+      +-- Q21 found < 2? --> Regex fallback (_detect_panel_groups_regex)
            |
-           +-- Q2=Yes OR Q3=Yes --> EXISTING 4100ES path (unchanged)
+           +-- Regex found >= 2 distinct loop counts? --> Use regex results
            |
-           +-- Both No --> NEW multi-panel-group path:
-                i.   Per group: loops --> panel type (Rule 3)
-                ii.  Designate main panel (Rule 4)
-                iii. Main panel: run existing product builder with NAC change
-                iv.  Other panels: base unit x qty only
-                v.   Combine all products, tagged by group
+           +-- Neither found >= 2 --> EXISTING single-panel path
+      |
+      +-- >= 2 distinct loop counts from either source:
+           i.   Per group: loops --> panel type (Rule 3)
+           ii.  Designate main panel (Rule 4)
+           iii. Main panel: run existing product builder with NAC change
+           iv.  Other panels: base unit + networking x qty
+           v.   Combine all products, tagged by group
 
 5. Store products          --> panel_selections table (with panel_group_id)
 6. Resolve deferred repeaters --> for main panel type (existing logic)
@@ -175,39 +185,36 @@ qty_nac = math.ceil(main_panel_loops / 6)
 
 ---
 
-## Panel Group Extraction
+## Panel Group Detection — LLM Primary, Regex Fallback
 
-### Where: Spec Analysis Phase (or new dedicated step)
+### How It Works
 
-The LLM (or deterministic parsing) examines panel-category BOQ items and extracts distinct groups.
+The LLM answers Q21 with a **JSON array** in the `answer` field. Each element identifies one BOQ panel item and its loop count. The backend parses this array, validates each entry against real BOQ items, and uses the result for multi-group detection.
 
-### New Q21 Behavior
+If the LLM fails to extract >= 2 distinct loop counts (e.g. old-format scalar answer, malformed JSON, or only 1 loop count found), a **regex fallback** (`_detect_panel_groups_regex`) scans panel-category BOQ items using the pattern `(\d+)\s*[-–]?\s*loop`. This catches digit-based patterns ("2-loop", "4-loop") but NOT word-based numbers.
 
-Instead of returning a single number, Q21 should return structured panel group data when multiple distinct loop counts are detected in panel BOQ items:
+The LLM approach is preferred because it handles word-based numbers ("two loops", "dual loop", "twelve loop") that regex cannot match.
 
-**Current Q21 answer (single panel — unchanged):**
-```json
-{"question_no": 21, "answer": "4", "confidence": "High"}
-```
+### Q21 Answer Format
 
-**New Q21 answer (multiple distinct loop counts detected):**
+Q21 returns a JSON array as a string in the `answer` field:
+
 ```json
 {
   "question_no": 21,
-  "answer": "12",
-  "panel_groups": [
-    {"boq_item_id": "uuid-of-row-7", "description": "2 Loop fire alarm control panel", "loops": 2, "qty": 1},
-    {"boq_item_id": "uuid-of-row-8", "description": "Fire Alarm Control Panel 4 Loop", "loops": 4, "qty": 5},
-    {"boq_item_id": "uuid-of-row-9", "description": "Fire Alarm Control Panel 6 Loop", "loops": 6, "qty": 16},
-    {"boq_item_id": "uuid-of-row-10", "description": "12 Loop Fire Alarm Control Panel", "loops": 12, "qty": 6}
-  ],
+  "answer": "[{\"boq_item_id\": \"uuid-of-row-7\", \"loop_count\": 2}, {\"boq_item_id\": \"uuid-of-row-8\", \"loop_count\": 4}, {\"boq_item_id\": \"uuid-of-row-9\", \"loop_count\": 6}, {\"boq_item_id\": \"uuid-of-row-10\", \"loop_count\": 12}]",
   "confidence": "High"
 }
 ```
 
-The `answer` field still contains the largest loop count (backward compatible). The `panel_groups` field is **only present** when multiple distinct loop counts exist.
+The `answer` field is the JSON array itself. The backend:
+1. Parses it via `_parse_q21_loop_items(q21_raw, boq_items)` — validates IDs, pulls description and quantity from actual BOQ data (not LLM)
+2. Derives `loop_count = max(loop_counts)` via `_derive_max_loop_count()` for the 4100ES entry gate (loops > 6)
+3. Checks if >= 2 distinct `loop_count` values exist for multi-group activation
 
-If all panel items have the same loop count or no loop counts are mentioned, `panel_groups` is **absent** and the existing system processes Q21 as a single number.
+### Backward Compatibility
+
+If Q21 returns an old scalar format (e.g. `"4"`), `json.loads("4")` produces an `int`, `isinstance(items, list)` fails, `_parse_q21_loop_items()` returns `[]`, and the system falls through to regex fallback. Zero breakage during transition — code can be deployed before or after the Q21 question text is updated in the database.
 
 ---
 
@@ -253,8 +260,9 @@ When `panel_group_id` is NULL, it means the existing single-panel system produce
 Runs the **existing** `_build_4100es_products()` method (or `_run_4100es()` flow) with:
 - `num_panels` = the main group's quantity (e.g. 6)
 - All existing parameters (protocol, notification_type, network_type, answer_map, etc.)
-- **One change only:** NAC card qty = `ceil(main_panel_loops / 6)` instead of `ceil(hornflasher_count / 45)`
-- All other steps (controller, loop cards, audio, telephone, printer, BMS, networking, PSU, enclosures) remain exactly as-is
+- **NAC card change:** NAC card qty = `ceil(main_panel_loops / 6)` instead of `ceil(hornflasher_count / 45)`
+- **Loop card change:** Loop card qty = the group's `loop_count` directly (not `ceil(devices / 150 or 200)`). See `loop_card_count_from_q21_loops.md` for details.
+- All other steps (controller, audio, telephone, printer, BMS, networking, PSU, enclosures) remain exactly as-is
 
 ### Main Panel Group (4010 or 4007 — when no 4100ES exists)
 
@@ -397,18 +405,19 @@ When `is_multi_group` is false or absent, the existing flat `products` array is 
 
 ---
 
-## Files to Modify/Create
+## Files Modified/Created
 
 | Action | File | Changes |
 |--------|------|---------|
-| CREATE | `backend/alembic/versions/0XX_create_panel_groups.py` | Migration: create `panel_groups` table + add `panel_group_id` to `panel_selections` |
-| EDIT | `backend/app/modules/panel_selection/service.py` | Add multi-panel-group detection, per-group builder loop, NAC card rule change (4100ES only), main panel designation. Existing single-panel path stays untouched. |
-| EDIT | `backend/app/modules/panel_selection/service.py` | New methods: `_detect_panel_groups()`, `_build_multi_group_products()`, `_build_non_main_products()` |
-| EDIT | `backend/app/modules/spec_analysis/prompts.py` | Update Q21 prompt to extract panel groups when multiple distinct loop counts exist |
-| EDIT | `backend/app/modules/panel_selection/router.py` | Update results endpoint to return grouped products when applicable |
-| CREATE | `backend/app/modules/panel_selection/schemas.py` | Add `PanelGroup`, `MultiGroupResult` schemas (if not existing) |
-| EDIT | `frontend/src/features/projects/components/PanelConfigurationSection.tsx` | Render per-group sections when `is_multi_group` is true, existing flat table when false |
-| EDIT | `frontend/src/features/projects/types/panel-selection.ts` | Add `PanelGroup` type, update `PanelSelectionResults` |
+| CREATED | `backend/alembic/versions/025_create_panel_groups.py` | Migration: `panel_groups` table + `panel_group_id` on `panel_selections` |
+| CREATED | `backend/alembic/versions/029_widen_answer_column.py` | Migration: `analysis_answers.answer` from `VARCHAR(10)` to `TEXT` (Q21 JSON array is too long for 10 chars) |
+| EDITED | `backend/app/modules/analysis/models.py` | `answer` column: `String(10)` → `Text` |
+| EDITED | `backend/app/modules/panel_selection/service.py` | `SYSTEM_PROMPT`: Q21 instructions updated for per-item JSON array output |
+| EDITED | `backend/app/modules/panel_selection/service.py` | New functions: `_parse_q21_loop_items()`, `_derive_max_loop_count()` |
+| EDITED | `backend/app/modules/panel_selection/service.py` | `run()`: Q21 parsing uses new parsers, multi-group block uses LLM primary + regex fallback |
+| EDITED | `backend/app/modules/panel_selection/service.py` | Renamed `_detect_panel_groups()` → `_detect_panel_groups_regex()` (kept as fallback) |
+| EDITED | `backend/app/modules/panel_selection/service.py` | `_run_multi_group()`, `_build_4007_4010_main_products()`, `_store_panel_groups()` — unchanged, already implemented |
+| EDITED | `backend/seeds/seed_4007_panel_questions.py` | Q21 question text updated + `update_q21()` function added |
 
 ---
 
@@ -432,7 +441,7 @@ When `is_multi_group` is false or absent, the existing flat `products` array is 
 
 - Do NOT modify the existing single-panel selection flow — it must remain byte-for-byte identical in behavior
 - Do NOT change `PANEL_CONFIGS` dictionary
-- Do NOT change the 4100ES 17-step product builder (except NAC card quantity calculation when in multi-group mode)
+- Do NOT change the 4100ES 17-step product builder (except NAC card and loop card quantity calculations — see `loop_card_count_from_q21_loops.md`)
 - Do NOT change the 4007/4010 product builder
 - Do NOT change device selection in any way
 - Do NOT change the `selectables` table or seed data

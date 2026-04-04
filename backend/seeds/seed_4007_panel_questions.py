@@ -52,16 +52,6 @@ QUESTIONS = [
             "or door-mounted annunciator?"
         ),
     },
-    {
-        "question_no": 21,
-        "question": (
-            "What is the total number of SLC (Signaling Line Circuit) loops or loop cards "
-            "mentioned in the BOQ or specification? Look for terms like 'single loop', "
-            "'2-loop panel', 'loop card', 'SLC loop', etc. If multiple different loop counts "
-            "are mentioned, return the LARGEST number. Return the numeric total, or 'null' "
-            "if no loop count is specified."
-        ),
-    },
 ]
 
 

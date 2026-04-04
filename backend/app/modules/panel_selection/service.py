@@ -110,33 +110,61 @@ questions about what panel features and child cards are needed.
 
 ## Instructions
 
-For each question, analyze ALL BOQ items and the specification text to \
-determine if the described feature/device is required.
+## CRITICAL — Source Restriction Rule
 
-Answer each question with:
-- "Yes" if the BOQ or specification clearly mentions or implies the feature
-- "No" if there is no indication the feature is needed
+Each question tells you WHERE to look for the answer. You MUST obey this \
+strictly:
 
-**Numeric questions (Q21, Q206):** For these questions, return the actual \
-numeric count as the "answer" field (e.g. "12", "0"). Count all matching \
-items from the BOQ and sum their quantities. Return "0" if none found.
+1. **Question mentions "BOQ" only** (e.g. "Does the BOQ require...", \
+"Does the BOQ mention..."): Search ONLY the BOQ items. Even if the \
+specification explicitly mentions the feature, answer "No" if the BOQ \
+does not mention it. The specification is irrelevant for these questions.
 
-**Special: Q21 (loop count):** If the BOQ or specification does not mention \
-any loop count, return "null" as the answer. If multiple loop counts are \
-mentioned (e.g. "2-loop" and "4-loop"), return only the LARGEST number.
+2. **Question mentions "specification" or "specifications" only** (e.g. \
+"Do the specifications call for..."): Search ONLY the specification text. \
+Even if the BOQ explicitly lists the feature, answer "No" if the \
+specification does not mention it. The BOQ is irrelevant for these questions.
+
+3. **Question mentions both "BOQ" and "specification"** (e.g. "Does the \
+BOQ or specification require..."): Search BOTH sources. Answer "Yes" if \
+either source mentions the feature.
+
+4. **Question does not mention a specific source**: Search BOTH the BOQ \
+and the specification. Answer "Yes" if either source mentions the feature.
+
+Set `inferred_from` to match where you actually found the evidence: \
+"BOQ", "Spec", "Both", or "Neither".
+
+---
+
+For Yes/No questions, answer:
+- "Yes" if the designated source(s) clearly mention or imply the feature
+- "No" if the designated source(s) do not indicate the feature is needed
+
+**Numeric questions (Q206):** Return the actual numeric count as the \
+"answer" field (e.g. "12", "0"). Count all matching items from the \
+designated source and sum their quantities. Return "0" if none found.
+
+**Special: Q21 (per-item loop extraction):** The "answer" field MUST be a \
+JSON array **as a string**. Scan every BOQ item for fire alarm control panels \
+that mention an SLC loop count. For each matching item, produce one object \
+with exactly two keys: \
+`"boq_item_id"` — copy the item's `"id"` value verbatim from the BOQ list, \
+and `"loop_count"` — an integer for how many loops that panel has. \
+Convert word-based numbers to digits (e.g. "two" → 2, "dual" → 2, \
+"quad" → 4, "single" → 1, "triple" → 3, "twelve" → 12). \
+If no BOQ items mention loops, return the string `"[]"`. \
+Example: `[{"boq_item_id": "abc-123", "loop_count": 2}, {"boq_item_id": "def-456", "loop_count": 4}]`
 
 If the specification text says "No specification document available" or is \
-empty, rely entirely on the BOQ items to answer each question. Examine BOQ \
-descriptions and quantities carefully. Set `inferred_from` to "BOQ" for all \
-answers when no spec is available.
-
-Be thorough — check BOQ item descriptions, quantities, and specification \
-sections for any mention of the relevant devices or capabilities.
+empty, rely entirely on the BOQ items for questions that allow BOQ as a \
+source. For spec-only questions, answer "No" since no spec is available. \
+Set `inferred_from` to "BOQ" or "Neither" accordingly.
 
 ## Output Format
 
 Return ONLY valid JSON (no markdown fences):
-{"answers": [{"question_no": <int>, "answer": "Yes" or "No" or "<number>", "confidence": "High" or "Medium" or "Low", "supporting_notes": ["<evidence from BOQ/spec>"], "inferred_from": "BOQ" or "Spec" or "Both" or "Neither"}]}
+{"answers": [{"question_no": <int>, "answer": "Yes" or "No" or "<number>" or "<JSON array for Q21>", "confidence": "High" or "Medium" or "Low", "supporting_notes": ["<evidence from BOQ/spec>"], "inferred_from": "BOQ" or "Spec" or "Both" or "Neither"}]}
 
 You MUST return an answer for EVERY question provided.\
 """
@@ -170,6 +198,56 @@ def _parse_int(val: str) -> int:
         return max(0, int(re.sub(r"[^\d]", "", str(val))))
     except (ValueError, TypeError):
         return 0
+
+
+def _parse_q21_loop_items(
+    q21_raw: str, boq_items: list[dict],
+) -> list[dict]:
+    """Parse Q21 per-item loop extraction answer.
+
+    Returns list of dicts with boq_item_id, description, loop_count, quantity.
+    Falls back to [] if the answer is not a valid JSON array.
+    """
+    try:
+        items = json.loads(str(q21_raw))
+    except (json.JSONDecodeError, TypeError):
+        return []
+
+    if not isinstance(items, list):
+        return []
+
+    # Build lookup from BOQ items by id
+    boq_lookup = {item["id"]: item for item in boq_items}
+
+    result: list[dict] = []
+    for entry in items:
+        if not isinstance(entry, dict):
+            continue
+        bid = str(entry.get("boq_item_id", ""))
+        lc = entry.get("loop_count")
+        if not bid or not isinstance(lc, int) or lc <= 0:
+            continue
+
+        boq_item = boq_lookup.get(bid)
+        if not boq_item:
+            logger.warning("Q21: unknown boq_item_id %s — skipping", bid)
+            continue
+
+        result.append({
+            "boq_item_id": bid,
+            "description": boq_item.get("description", ""),
+            "loop_count": lc,
+            "quantity": int(boq_item.get("quantity", 1)) or 1,
+        })
+
+    return result
+
+
+def _derive_max_loop_count(loop_items: list[dict]) -> int | None:
+    """Return the max loop_count from parsed Q21 items, or None if empty."""
+    if not loop_items:
+        return None
+    return max(item["loop_count"] for item in loop_items)
 
 
 def _calc_power_supplies(
@@ -303,11 +381,10 @@ class PanelSelectionService:
         has_speakers = q2_answer == "Yes" and speaker_count > 0
         has_telephone = q3_answer == "Yes"
 
-        # Parse loop count (Q21) — null means not specified
-        q21_raw = answer_map.get(21, "null")
-        loop_count: int | None = None
-        if q21_raw and str(q21_raw).lower() not in ("null", "none", "n/a", ""):
-            loop_count = _parse_int(str(q21_raw)) or None
+        # Parse loop count (Q21) — now returns per-item loop extraction
+        q21_raw = answer_map.get(21, "[]")
+        q21_loop_items = _parse_q21_loop_items(str(q21_raw), boq_items)
+        loop_count = _derive_max_loop_count(q21_loop_items)
 
         entry_reasons: list[str] = []
         if devices_per_panel >= 1000:
@@ -325,16 +402,30 @@ class PanelSelectionService:
 
         logger.info("Panel selection: loop_count=%s", loop_count)
 
-        # ── 6b. Multi-panel-group detection ──
+        # ── 6b. Multi-panel-group detection (LLM primary, regex fallback) ──
         if not has_speakers and not has_telephone:
-            panel_groups = await self._detect_panel_groups(tenant_id, project_id)
-            if len(panel_groups) >= 2:
+            seen_loops = {item["loop_count"] for item in q21_loop_items}
+            panel_groups_for_multi = q21_loop_items
+
+            # Regex fallback: if LLM found < 2 distinct loops, try old regex
+            if len(seen_loops) < 2:
+                regex_groups = await self._detect_panel_groups_regex(
+                    tenant_id, project_id,
+                )
+                if len({g["loop_count"] for g in regex_groups}) >= 2:
+                    logger.info(
+                        "Q21 LLM missed multi-group — using regex fallback"
+                    )
+                    panel_groups_for_multi = regex_groups
+                    seen_loops = {g["loop_count"] for g in regex_groups}
+
+            if len(seen_loops) >= 2:
                 return await self._run_multi_group(
                     tenant_id=tenant_id,
                     project_id=project_id,
                     protocol=protocol,
                     notification_type=notification_type,
-                    panel_groups=panel_groups,
+                    panel_groups=panel_groups_for_multi,
                     answer_map=answer_map,
                     llm_answers=llm_answers,
                     q2_answer=q2_answer,
@@ -690,6 +781,7 @@ class PanelSelectionService:
         network_type: str | None,
         has_workstation: bool,
         nac_override_loops: int | None = None,
+        loop_card_override: int | None = None,
     ) -> list[dict]:
         """17-step cascading product builder for 4100ES."""
         products: list[dict] = []
@@ -712,7 +804,10 @@ class PanelSelectionService:
         else:
             loop_code = "4100-3109"
             loop_per = 200
-        qty_loop = math.ceil(total_devices / loop_per) if total_devices else 0
+        if loop_card_override is not None:
+            qty_loop = loop_card_override
+        else:
+            qty_loop = math.ceil(total_devices / loop_per) if total_devices else 0
         if qty_loop:
             products.append(await self._product(
                 loop_code, qty_loop, "step_4_loop_card",
@@ -933,12 +1028,12 @@ class PanelSelectionService:
 
     # ── Multi-panel-group methods ──
 
-    async def _detect_panel_groups(
+    async def _detect_panel_groups_regex(
         self,
         tenant_id: uuid.UUID,
         project_id: uuid.UUID,
     ) -> list[dict]:
-        """Detect distinct loop-count groups from panel BOQ items.
+        """Regex fallback: detect distinct loop-count groups from panel BOQ items.
 
         Returns empty list if 0 or 1 distinct loop counts found.
         """
@@ -1068,6 +1163,7 @@ class PanelSelectionService:
                 network_type=network_type,
                 has_workstation=has_workstation,
                 nac_override_loops=main_group["loop_count"],
+                loop_card_override=main_group["loop_count"],
             )
         else:
             main_products = await self._build_4007_4010_main_products(
@@ -1627,6 +1723,7 @@ class PanelSelectionService:
             .where(PromptQuestion.category.in_([
                 "4007_panel_questions",
                 "4100ES_panel_questions",
+                "multi_panel_questions",
             ]))
             .order_by(PromptQuestion.question_no.asc())
         )
