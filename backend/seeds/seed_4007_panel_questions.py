@@ -42,7 +42,9 @@ QUESTIONS = [
         "question_no": 18,
         "question": (
             "Does the BOQ mention a graphic annunciator, mimic panel, "
-            "or mimic display?"
+            "or mimic display? (Note: a 'graphic station' or 'FAS graphic "
+            "station' is a workstation/PC — NOT a graphic annunciator. "
+            "Do not match it.)"
         ),
     },
     {

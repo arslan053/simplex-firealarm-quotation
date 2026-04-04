@@ -261,8 +261,9 @@ Runs the **existing** `_build_4100es_products()` method (or `_run_4100es()` flow
 - `num_panels` = the main group's quantity (e.g. 6)
 - All existing parameters (protocol, notification_type, network_type, answer_map, etc.)
 - **NAC card change:** NAC card qty = `ceil(main_panel_loops / 6)` instead of `ceil(hornflasher_count / 45)`
-- **Loop card change:** Loop card qty = the group's `loop_count` directly (not `ceil(devices / 150 or 200)`). See `loop_card_count_from_q21_loops.md` for details.
-- All other steps (controller, audio, telephone, printer, BMS, networking, PSU, enclosures) remain exactly as-is
+- **Loop card change:** Loop card qty = the group's `loop_count` × `num_panels` (not `ceil(devices / 150 or 200)`). See `loop_card_count_from_q21_loops.md` for details.
+- **Enclosure change:** 1× 3-bay enclosure (`2975-9443`) per panel instead of legacy greedy bin-packing. See `loop_card_count_from_q21_loops.md` for details.
+- All other steps (controller, audio, telephone, printer, BMS, networking, PSU) remain exactly as-is
 
 ### Main Panel Group (4010 or 4007 — when no 4100ES exists)
 

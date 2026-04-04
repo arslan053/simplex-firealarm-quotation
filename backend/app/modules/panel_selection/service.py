@@ -137,6 +137,13 @@ Set `inferred_from` to match where you actually found the evidence: \
 
 ---
 
+**Matching Rule:** Match based on the actual meaning and purpose of the \
+device, not just keyword overlap. A BOQ or spec item must genuinely BE \
+the device described in the question — not merely share a word with it. \
+For example, a "graphic station" (a PC/workstation) is not a "graphic \
+annunciator" (a wall-mounted LED display board) even though both contain \
+the word "graphic".
+
 For Yes/No questions, answer:
 - "Yes" if the designated source(s) clearly mention or imply the feature
 - "No" if the designated source(s) do not indicate the feature is needed
@@ -727,6 +734,7 @@ class PanelSelectionService:
             printer=printer,
             network_type=network_type,
             has_workstation=has_workstation,
+            loop_card_override=loop_count,
         )
 
         await self._store_products(tenant_id, project_id, products)
@@ -782,6 +790,7 @@ class PanelSelectionService:
         has_workstation: bool,
         nac_override_loops: int | None = None,
         loop_card_override: int | None = None,
+        is_multi_panel: bool = False,
     ) -> list[dict]:
         """17-step cascading product builder for 4100ES."""
         products: list[dict] = []
@@ -805,7 +814,7 @@ class PanelSelectionService:
             loop_code = "4100-3109"
             loop_per = 200
         if loop_card_override is not None:
-            qty_loop = loop_card_override
+            qty_loop = loop_card_override * num_panels
         else:
             qty_loop = math.ceil(total_devices / loop_per) if total_devices else 0
         if qty_loop:
@@ -1014,15 +1023,23 @@ class PanelSelectionService:
                 f"{qty_bays} bays x 8 = {qty_filler} fillers",
             ))
 
-        # ── Step 17: Enclosure (greedy bin-packing) ──
-        total_slots = qty_psu + qty_std_amp
-        enclosures = _select_enclosures(qty_psu, qty_std_amp)
-        for encl_code, encl_qty in enclosures:
+        # ── Step 17: Enclosure ──
+        if is_multi_panel:
+            # Multi-panel 4100ES: 1× 3-bay enclosure per panel
             products.append(await self._product(
-                encl_code, encl_qty, "step_17_enclosure",
-                f"Total slots={total_slots} (PSU={qty_psu} + amp={qty_std_amp}), "
-                f"greedy bin-packing",
+                "2975-9443", num_panels, "step_17_enclosure",
+                f"Multi-panel: 1x 3-bay enclosure per panel × {num_panels}",
             ))
+        else:
+            # Legacy: greedy bin-packing based on PSU + amplifier slots
+            total_slots = qty_psu + qty_std_amp
+            enclosures = _select_enclosures(qty_psu, qty_std_amp)
+            for encl_code, encl_qty in enclosures:
+                products.append(await self._product(
+                    encl_code, encl_qty, "step_17_enclosure",
+                    f"Total slots={total_slots} (PSU={qty_psu} + amp={qty_std_amp}), "
+                    f"greedy bin-packing",
+                ))
 
         return products
 
@@ -1164,6 +1181,7 @@ class PanelSelectionService:
                 has_workstation=has_workstation,
                 nac_override_loops=main_group["loop_count"],
                 loop_card_override=main_group["loop_count"],
+                is_multi_panel=True,
             )
         else:
             main_products = await self._build_4007_4010_main_products(
