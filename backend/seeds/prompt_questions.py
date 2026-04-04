@@ -31,7 +31,15 @@ PROMPT_QUESTIONS = [
     },
     {
         "question_no": 4,
-        "question": "Does Specs and / or BOQ calls for all Detection and notification devices on same Loop?",
+        "question": (
+            "Does Specs and / or BOQ calls for all Detection and notification "
+            "devices on same Loop? (Note: 'detection and notification devices' "
+            "means only detectors, manual call points, sounders, strobes, "
+            "speakers, and notification appliances. Mimic panels, graphic "
+            "annunciators, repeater panels, and other display/monitoring "
+            "accessories are NOT detection or notification devices — do not "
+            "count them.)"
+        ),
         "category": "Protocol_decision",
     },
 ]

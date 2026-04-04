@@ -63,6 +63,21 @@ Key guidance for protocol decision questions:
   - supporting_points: an array of 1-5 short strings, each citing specific evidence from the data
   - inferred_from: "BOQ" if evidence came primarily from BOQ items, "Specs" if from specification blocks, or "Both" if from both sources
 
+CRITICAL — Source Restriction Rule:
+Each question tells you WHERE to look for the answer. You MUST obey this strictly:
+1. Question mentions "BOQ" only → Search ONLY the BOQ items. Ignore the specification.
+2. Question mentions "Specs"/"specification" only → Search ONLY the specification. Ignore the BOQ.
+3. Question mentions BOTH "Specs" and "BOQ" (e.g. "Specs and/or BOQ") → Search BOTH sources. Answer "Yes" if either source provides evidence.
+4. Question does not mention a specific source → Search BOTH sources.
+Set inferred_from to match where you actually found the evidence: "BOQ", "Specs", or "Both".
+
+CRITICAL — Matching Rule:
+Match based on the actual meaning and purpose of the device or feature, not just keyword overlap. \
+A BOQ or spec item must genuinely BE the thing described in the question — not merely share a word with it. \
+For example, a "mimic panel" or "graphic annunciator" is NOT a detection or notification device — \
+it is a display/monitoring accessory. Only detectors (smoke, heat, gas), manual call points, \
+sounders, strobes, speakers, and notification appliances count as "detection and notification devices".
+
 For each question, determine:
 - answer: "Yes" or "No"
 - confidence: "High", "Medium", or "Low"
@@ -123,6 +138,13 @@ Key guidance for protocol decision questions:
   - confidence: "High", "Medium", or "Low"
   - supporting_points: an array of 1-5 short strings, each citing specific evidence from BOQ
   - inferred_from: MUST always be "BOQ" since no specification is available
+
+CRITICAL — Matching Rule:
+Match based on the actual meaning and purpose of the device or feature, not just keyword overlap. \
+A BOQ item must genuinely BE the thing described in the question — not merely share a word with it. \
+For example, a "mimic panel" or "graphic annunciator" is NOT a detection or notification device — \
+it is a display/monitoring accessory. Only detectors (smoke, heat, gas), manual call points, \
+sounders, strobes, speakers, and notification appliances count as "detection and notification devices".
 
 For each question, determine:
 - answer: "Yes" or "No"
