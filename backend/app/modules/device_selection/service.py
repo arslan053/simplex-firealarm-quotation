@@ -512,14 +512,14 @@ class DeviceSelectionService:
             if clean_network_type == "ip":
                 clean_network_type = "IP"
             await self.db.execute(
-                text("UPDATE projects SET network_type = :nt WHERE id = :pid AND tenant_id = :tid"),
+                text("UPDATE projects SET network_type = :nt, network_type_auto = :nt WHERE id = :pid AND tenant_id = :tid"),
                 {"nt": clean_network_type, "pid": project_id, "tid": tenant_id},
             )
             logger.info("Device selection: stored network_type=%s for project %s", clean_network_type, project_id)
         else:
             # No networking needed (no workstation, no multiple main panels) — clear any previous value
             await self.db.execute(
-                text("UPDATE projects SET network_type = NULL WHERE id = :pid AND tenant_id = :tid"),
+                text("UPDATE projects SET network_type = NULL, network_type_auto = NULL WHERE id = :pid AND tenant_id = :tid"),
                 {"pid": project_id, "tid": tenant_id},
             )
             logger.info("Device selection: network_type=NULL (not needed) for project %s", project_id)

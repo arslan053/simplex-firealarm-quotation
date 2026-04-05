@@ -4,7 +4,8 @@ import uuid
 from dataclasses import dataclass
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import text
+from pydantic import BaseModel
+from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_tenant_db, get_worker_db
@@ -23,6 +24,7 @@ from app.modules.device_selection.schemas import (
     build_pagination,
 )
 from app.modules.device_selection.service import DeviceSelectionService
+from app.modules.projects.models import Project
 from app.modules.projects.service import ProjectService
 
 logger = logging.getLogger(__name__)
@@ -250,8 +252,58 @@ async def get_results(
         for row in rows
     ]
 
+    # Fetch network_type from project
+    proj_result = await db.execute(
+        select(Project.network_type, Project.network_type_auto).where(
+            Project.id == project_id,
+            Project.tenant_id == tenant_id,
+        )
+    )
+    proj_row = proj_result.first()
+
     return DeviceSelectionResultsResponse(
         project_id=project_id,
         data=items,
         pagination=build_pagination(page, limit, total),
+        network_type=proj_row.network_type if proj_row else None,
+        network_type_auto=proj_row.network_type_auto if proj_row else None,
     )
+
+
+class NetworkTypeOverrideRequest(BaseModel):
+    network_type: str
+
+
+@router.put(
+    "/network-type",
+    dependencies=[
+        Depends(require_tenant_domain),
+        Depends(require_tenant_match),
+        require_role("admin", "employee"),
+    ],
+)
+async def override_network_type(
+    project_id: uuid.UUID,
+    body: NetworkTypeOverrideRequest,
+    request: Request,
+    user: UserContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
+):
+    tenant = request.state.tenant
+    tenant_id = uuid.UUID(tenant["id"])
+    await _verify_project(project_id, user, tenant_id, db)
+
+    if body.network_type not in ("wired", "fiber", "IP"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Network type must be 'wired', 'fiber', or 'IP'.",
+        )
+
+    await db.execute(
+        update(Project)
+        .where(Project.id == project_id, Project.tenant_id == tenant_id)
+        .values(network_type=body.network_type)
+    )
+    await db.commit()
+
+    return {"network_type": body.network_type, "message": f"Network type manually set to {body.network_type}."}

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Cpu, Loader2, AlertCircle, CheckCircle, ChevronLeft, ChevronRight, Download } from 'lucide-react';
+import { Cpu, Loader2, AlertCircle, CheckCircle, ChevronLeft, ChevronRight, Download, RefreshCw } from 'lucide-react';
 
 import { deviceSelectionApi } from '../api/device-selection.api';
 import type { DeviceSelectionJobStatus, DeviceSelectionItem, PaginationMeta } from '../types/device-selection';
@@ -29,6 +29,9 @@ export function DeviceSelectionSection({ projectId, projectName = '', refreshKey
   const [resultsLoading, setResultsLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [expandedReasons, setExpandedReasons] = useState<Set<string>>(new Set());
+  const [networkType, setNetworkType] = useState<string | null>(null);
+  const [networkTypeAuto, setNetworkTypeAuto] = useState<string | null>(null);
+  const [networkSaving, setNetworkSaving] = useState(false);
 
   const stopPolling = useCallback(() => {
     if (pollingRef.current) {
@@ -55,6 +58,8 @@ export function DeviceSelectionSection({ projectId, projectName = '', refreshKey
         setPagination(data.pagination);
         setCurrentPage(page);
         setExpandedReasons(new Set());
+        setNetworkType(data.network_type);
+        setNetworkTypeAuto(data.network_type_auto);
       } catch (err) {
         setError(normalizeError(err).message);
       } finally {
@@ -185,6 +190,24 @@ export function DeviceSelectionSection({ projectId, projectName = '', refreshKey
       setDownloading(false);
     }
   };
+
+  const NETWORK_CYCLE: Record<string, string> = { wired: 'fiber', fiber: 'IP', IP: 'wired' };
+
+  const handleNetworkTypeSwitch = async () => {
+    if (!networkType) return;
+    const next = NETWORK_CYCLE[networkType] || 'wired';
+    setNetworkSaving(true);
+    try {
+      await deviceSelectionApi.overrideNetworkType(projectId, next);
+      setNetworkType(next);
+    } catch (err) {
+      console.error('Failed to override network type:', normalizeError(err).message);
+    } finally {
+      setNetworkSaving(false);
+    }
+  };
+
+  const isNetworkManuallyChanged = networkType && networkTypeAuto && networkType !== networkTypeAuto;
 
   return (
     <div className="space-y-4">
@@ -335,6 +358,62 @@ export function DeviceSelectionSection({ projectId, projectName = '', refreshKey
             </div>
           </div>
         </Card>
+      )}
+
+      {/* Network type override — only when network_type has a value */}
+      {networkType && results.length > 0 && (
+        <div
+          className={`rounded-lg border px-4 py-3 ${
+            networkType === 'wired'
+              ? 'border-blue-200 bg-blue-50'
+              : networkType === 'fiber'
+                ? 'border-purple-200 bg-purple-50'
+                : 'border-teal-200 bg-teal-50'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <span
+                className={`text-sm font-medium ${
+                  networkType === 'wired'
+                    ? 'text-blue-800'
+                    : networkType === 'fiber'
+                      ? 'text-purple-800'
+                      : 'text-teal-800'
+                }`}
+              >
+                Network Type:
+              </span>
+              <span
+                className={`text-base font-bold ${
+                  networkType === 'wired'
+                    ? 'text-blue-800'
+                    : networkType === 'fiber'
+                      ? 'text-purple-800'
+                      : 'text-teal-800'
+                }`}
+              >
+                {networkType === 'IP' ? 'IP' : networkType.charAt(0).toUpperCase() + networkType.slice(1)}
+              </span>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleNetworkTypeSwitch}
+              disabled={networkSaving}
+              isLoading={networkSaving}
+            >
+              <RefreshCw className="mr-1 h-3 w-3" />
+              Switch to {NETWORK_CYCLE[networkType] === 'IP' ? 'IP' : (NETWORK_CYCLE[networkType] || '').charAt(0).toUpperCase() + (NETWORK_CYCLE[networkType] || '').slice(1)}
+            </Button>
+          </div>
+          {isNetworkManuallyChanged && (
+            <p className="mt-2 text-xs text-amber-700">
+              System suggested <span className="font-semibold">{networkTypeAuto === 'IP' ? 'IP' : networkTypeAuto!.charAt(0).toUpperCase() + networkTypeAuto!.slice(1)}</span>, manually
+              changed to <span className="font-semibold">{networkType === 'IP' ? 'IP' : networkType.charAt(0).toUpperCase() + networkType.slice(1)}</span>
+            </p>
+          )}
+        </div>
       )}
 
       {/* Empty state */}

@@ -34,4 +34,6 @@ export interface DeviceSelectionResultsResponse {
   project_id: string;
   data: DeviceSelectionItem[];
   pagination: PaginationMeta;
+  network_type: string | null;
+  network_type_auto: string | null;
 }

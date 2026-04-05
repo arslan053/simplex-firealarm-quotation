@@ -26,4 +26,10 @@ export const deviceSelectionApi = {
     apiClient.get<{ active: boolean; job_id?: string; status?: string; message?: string }>(
       `/projects/${projectId}/device-selection/active-job`,
     ),
+
+  overrideNetworkType: (projectId: string, networkType: string) =>
+    apiClient.put<{ network_type: string; message: string }>(
+      `/projects/${projectId}/device-selection/network-type`,
+      { network_type: networkType },
+    ),
 };
