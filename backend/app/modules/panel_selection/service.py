@@ -42,7 +42,6 @@ PANEL_CONFIGS: dict[str, dict] = {
             },
         },
         "child_card_map": {
-            17: [("4606-9202", 1), ("2975-9461", 1)],
             18: [("4100-7402", 1), ("4100-7403", 1), ("4100-7404", 1)],
             20: [("4007-9805", 1)],
         },
@@ -64,7 +63,6 @@ PANEL_CONFIGS: dict[str, dict] = {
         },
         "assistive_card": None,
         "child_card_map": {
-            17: [("4606-9102", 1), ("2975-9206", 1)],
             18: [("4100-7402", 1), ("4100-7403", 1), ("4100-7404", 1)],
         },
         "printer_card": [("4010-9918", 1)],
@@ -87,7 +85,6 @@ PANEL_CONFIGS: dict[str, dict] = {
         },
         "assistive_card": None,
         "child_card_map": {
-            17: [("4606-9102", 1), ("2975-9206", 1)],
             18: [("4100-7402", 1), ("4100-7403", 1), ("4100-7404", 1)],
         },
         "printer_card": [("4010-9918", 1)],
@@ -577,7 +574,7 @@ class PanelSelectionService:
                         f"({lo}-{hi} range), qty {ac_qty} x {num_panels} panels",
                     ))
 
-        # Child cards from LLM answers (Q17, Q18, Q20 — remaining questions)
+        # Child cards from LLM answers (Q18, Q20 — remaining questions)
         child_map = config["child_card_map"]
         for qno, card_list in child_map.items():
             if answer_map.get(qno) == "Yes":
@@ -1346,7 +1343,7 @@ class PanelSelectionService:
                         f"({lo}-{hi} range), qty {ac_qty} x {num_panels} panels",
                     ))
 
-        # Child cards from LLM answers (Q17, Q18, Q20)
+        # Child cards from LLM answers (Q18, Q20)
         child_map = config["child_card_map"]
         for qno, card_list in child_map.items():
             if answer_map.get(qno) == "Yes":

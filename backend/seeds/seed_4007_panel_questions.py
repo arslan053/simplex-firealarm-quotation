@@ -32,13 +32,6 @@ QUESTIONS = [
         "question": "Does the BOQ mention a printer or require printing capability?",
     },
     {
-        "question_no": 17,
-        "question": (
-            "Does the BOQ mention a repeater panel, remote annunciator, "
-            "or LCD annunciator?"
-        ),
-    },
-    {
         "question_no": 18,
         "question": (
             "Does the BOQ mention a graphic annunciator, mimic panel, "
