@@ -26,6 +26,8 @@ class Project(Base, UUIDPrimaryKey, TimestampMixin):
     protocol_auto: Mapped[str | None] = mapped_column(String(10), nullable=True, default=None)
     network_type: Mapped[str | None] = mapped_column(String(10), nullable=True, default=None)
     network_type_auto: Mapped[str | None] = mapped_column(String(10), nullable=True, default=None)
+    notification_type: Mapped[str | None] = mapped_column(String(20), nullable=True, default=None)
+    notification_type_auto: Mapped[str | None] = mapped_column(String(20), nullable=True, default=None)
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default="IN_PROGRESS"
     )

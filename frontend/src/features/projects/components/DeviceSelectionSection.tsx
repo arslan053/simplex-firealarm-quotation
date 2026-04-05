@@ -32,6 +32,9 @@ export function DeviceSelectionSection({ projectId, projectName = '', refreshKey
   const [networkType, setNetworkType] = useState<string | null>(null);
   const [networkTypeAuto, setNetworkTypeAuto] = useState<string | null>(null);
   const [networkSaving, setNetworkSaving] = useState(false);
+  const [notificationType, setNotificationType] = useState<string | null>(null);
+  const [notificationTypeAuto, setNotificationTypeAuto] = useState<string | null>(null);
+  const [notificationSaving, setNotificationSaving] = useState(false);
 
   const stopPolling = useCallback(() => {
     if (pollingRef.current) {
@@ -60,6 +63,8 @@ export function DeviceSelectionSection({ projectId, projectName = '', refreshKey
         setExpandedReasons(new Set());
         setNetworkType(data.network_type);
         setNetworkTypeAuto(data.network_type_auto);
+        setNotificationType(data.notification_type);
+        setNotificationTypeAuto(data.notification_type_auto);
       } catch (err) {
         setError(normalizeError(err).message);
       } finally {
@@ -208,6 +213,33 @@ export function DeviceSelectionSection({ projectId, projectName = '', refreshKey
   };
 
   const isNetworkManuallyChanged = networkType && networkTypeAuto && networkType !== networkTypeAuto;
+
+  const handleNotificationTypeSwitch = async () => {
+    if (!notificationType) return;
+    const next = notificationType === 'addressable' ? 'non_addressable' : 'addressable';
+    const nextLabel = next === 'addressable' ? 'Addressable' : 'Non-Addressable';
+
+    const confirmed = window.confirm(
+      `Changing notification type to ${nextLabel} will re-run device selection for all notification items. ` +
+      `Currently selected notification devices will be replaced with ${nextLabel} variants.\n\n` +
+      `Are you sure you want to change the notification type?`
+    );
+    if (!confirmed) return;
+
+    setNotificationSaving(true);
+    try {
+      await deviceSelectionApi.overrideNotificationType(projectId, next);
+      setNotificationType(next);
+      // Re-fetch results since notification items were re-selected
+      await fetchResults(currentPage);
+    } catch (err) {
+      console.error('Failed to override notification type:', normalizeError(err).message);
+    } finally {
+      setNotificationSaving(false);
+    }
+  };
+
+  const isNotificationManuallyChanged = notificationType && notificationTypeAuto && notificationType !== notificationTypeAuto;
 
   return (
     <div className="space-y-4">
@@ -412,6 +444,58 @@ export function DeviceSelectionSection({ projectId, projectName = '', refreshKey
               System suggested <span className="font-semibold">{networkTypeAuto === 'IP' ? 'IP' : networkTypeAuto!.charAt(0).toUpperCase() + networkTypeAuto!.slice(1)}</span>, manually
               changed to <span className="font-semibold">{networkType === 'IP' ? 'IP' : networkType.charAt(0).toUpperCase() + networkType.slice(1)}</span>
             </p>
+          )}
+        </div>
+      )}
+
+      {/* Notification type override — only when notification_type has a value */}
+      {notificationType && results.length > 0 && (
+        <div
+          className={`rounded-lg border px-4 py-3 ${
+            notificationType === 'addressable'
+              ? 'border-indigo-200 bg-indigo-50'
+              : 'border-orange-200 bg-orange-50'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <span
+                className={`text-sm font-medium ${
+                  notificationType === 'addressable' ? 'text-indigo-800' : 'text-orange-800'
+                }`}
+              >
+                Notification Type:
+              </span>
+              <span
+                className={`text-base font-bold ${
+                  notificationType === 'addressable' ? 'text-indigo-800' : 'text-orange-800'
+                }`}
+              >
+                {notificationType === 'addressable' ? 'Addressable' : 'Non-Addressable'}
+              </span>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleNotificationTypeSwitch}
+              disabled={notificationSaving}
+              isLoading={notificationSaving}
+            >
+              <RefreshCw className="mr-1 h-3 w-3" />
+              Switch to {notificationType === 'addressable' ? 'Non-Addressable' : 'Addressable'}
+            </Button>
+          </div>
+          {isNotificationManuallyChanged && (
+            <p className="mt-2 text-xs text-amber-700">
+              System suggested <span className="font-semibold">{notificationTypeAuto === 'addressable' ? 'Addressable' : 'Non-Addressable'}</span>, manually
+              changed to <span className="font-semibold">{notificationType === 'addressable' ? 'Addressable' : 'Non-Addressable'}</span>
+            </p>
+          )}
+          {notificationSaving && (
+            <div className="mt-2 flex items-center gap-2 text-xs text-gray-500">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Re-selecting notification devices...
+            </div>
           )}
         </div>
       )}

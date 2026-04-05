@@ -393,6 +393,7 @@ class DeviceSelectionService:
         # ── 5. Batch and call LLM ──
         all_matches: list[dict] = []
         network_type: str | None = None
+        notification_type: str | None = None
         selectables_json = json.dumps(catalog_for_llm, ensure_ascii=False)
 
         for i in range(0, len(boq_items), _BATCH_SIZE):
@@ -424,9 +425,12 @@ class DeviceSelectionService:
             if isinstance(parsed, dict) and "matches" in parsed:
                 all_matches.extend(parsed["matches"])
                 if "notification_protocol" in parsed:
+                    raw_np = parsed["notification_protocol"]
+                    if raw_np in ("addressable", "non_addressable"):
+                        notification_type = raw_np
                     logger.info(
                         "Device selection batch %d: notification_protocol=%s",
-                        i, parsed["notification_protocol"],
+                        i, raw_np,
                     )
                 if "network_type" in parsed:
                     network_type = parsed["network_type"]
@@ -523,6 +527,26 @@ class DeviceSelectionService:
                 {"pid": project_id, "tid": tenant_id},
             )
             logger.info("Device selection: network_type=NULL (not needed) for project %s", project_id)
+
+        # ── 5c. Store notification_type on the project ──
+        if notification_type:
+            await self.db.execute(
+                text(
+                    "UPDATE projects SET notification_type = :nt, notification_type_auto = :nt"
+                    " WHERE id = :pid AND tenant_id = :tid"
+                ),
+                {"nt": notification_type, "pid": project_id, "tid": tenant_id},
+            )
+            logger.info("Device selection: stored notification_type=%s for project %s", notification_type, project_id)
+        else:
+            await self.db.execute(
+                text(
+                    "UPDATE projects SET notification_type = NULL, notification_type_auto = NULL"
+                    " WHERE id = :pid AND tenant_id = :tid"
+                ),
+                {"pid": project_id, "tid": tenant_id},
+            )
+            logger.info("Device selection: notification_type=NULL for project %s", project_id)
 
         # ── 6. Delete old selections and store new ──
         await self.db.execute(
@@ -735,6 +759,251 @@ class DeviceSelectionService:
             return None
 
         return "\n".join(blocks)
+
+    async def reselect_notifications(
+        self,
+        tenant_id: uuid.UUID,
+        project_id: uuid.UUID,
+        target_type: str,
+    ) -> int:
+        """Re-select notification BOQ items using a specific notification category.
+
+        Called when the user manually overrides the notification type.
+        Only touches notification BOQ items — everything else stays the same.
+        Returns the count of updated notification items.
+        """
+        target_category = (
+            "addressable_notification_device"
+            if target_type == "addressable"
+            else "non_addressable_notification_device"
+        )
+
+        # 1. Find BOQ items currently matched to ANY notification selectable
+        notif_rows = await self.db.execute(text("""
+            SELECT ds.boq_item_id, bi.description AS boq_description
+            FROM boq_device_selections ds
+            JOIN boq_items bi ON bi.id = ds.boq_item_id
+            JOIN selectables s ON s.id = ds.selectable_id
+            WHERE ds.tenant_id = :tid
+              AND ds.project_id = :pid
+              AND s.category IN (
+                  'addressable_notification_device',
+                  'non_addressable_notification_device'
+              )
+        """), {"tid": tenant_id, "pid": project_id})
+        notif_items = notif_rows.fetchall()
+
+        if not notif_items:
+            logger.info("Notification reselection: no notification items found")
+            return 0
+
+        # 2. Load only target-category selectables with product info
+        sel_rows = await self.db.execute(text("""
+            SELECT
+                s.id,
+                s.category,
+                s.selection_type,
+                s.boq_match_phrases,
+                s.description,
+                s.specification_hints,
+                s.priority,
+                COALESCE(
+                    array_agg(DISTINCT p.code) FILTER (WHERE p.code IS NOT NULL),
+                    '{}'
+                ) AS product_codes,
+                COALESCE(
+                    array_agg(DISTINCT p.description) FILTER (WHERE p.description IS NOT NULL),
+                    '{}'
+                ) AS product_descriptions
+            FROM selectables s
+            LEFT JOIN selectable_products sp ON sp.selectable_id = s.id
+            LEFT JOIN products p ON p.id = sp.product_id
+            WHERE s.category = :cat
+            GROUP BY s.id, s.category, s.selection_type,
+                     s.boq_match_phrases, s.description, s.specification_hints, s.priority
+        """), {"cat": target_category})
+        selectables_data = sel_rows.fetchall()
+
+        if not selectables_data:
+            logger.warning("No selectables found for category %s", target_category)
+            return 0
+
+        # Build lookup and catalog
+        selectable_lookup: dict[str, dict] = {}
+        catalog_for_llm: list[dict] = []
+
+        for row in selectables_data:
+            sid = str(row.id)
+            p_codes = list(row.product_codes) if row.product_codes else []
+            p_descs = list(row.product_descriptions) if row.product_descriptions else []
+
+            selectable_lookup[sid] = {
+                "selection_type": row.selection_type,
+                "product_codes": p_codes,
+                "product_descriptions": p_descs,
+            }
+
+            entry = {
+                "id": sid,
+                "category": row.category,
+                "selection_type": row.selection_type,
+                "boq_match_phrases": list(row.boq_match_phrases) if row.boq_match_phrases else [],
+                "specification_hints": row.specification_hints,
+            }
+            if row.description:
+                entry["description"] = row.description
+            if row.priority:
+                entry["priority"] = row.priority
+            catalog_for_llm.append(entry)
+
+        # 3. Load spec text
+        spec_text = await self._load_spec_text(tenant_id, project_id)
+
+        # 4. Build LLM input
+        boq_json = json.dumps(
+            [{"id": str(r.boq_item_id), "description": r.boq_description} for r in notif_items],
+            ensure_ascii=False,
+        )
+        selectables_json = json.dumps(catalog_for_llm, ensure_ascii=False)
+
+        user_msg = _build_user_message(boq_json, selectables_json, spec_text)
+
+        logger.info(
+            "Notification reselection: %d items, target=%s, %d selectables",
+            len(notif_items), target_type, len(catalog_for_llm),
+        )
+
+        # 5. Call LLM with notification-specific prompt
+        prompt = _NOTIFICATION_RESELECT_PROMPT.replace("{TARGET_TYPE}", target_type)
+
+        client = get_openai_client()
+        response = await client.responses.create(
+            model="gpt-5.2",
+            instructions=prompt,
+            input=[{"role": "user", "content": user_msg}],
+        )
+
+        raw_text = _extract_text(response)
+        parsed = _parse_json(raw_text)
+
+        if not isinstance(parsed, dict) or "matches" not in parsed:
+            logger.warning("Notification reselection: unexpected LLM response format")
+            return 0
+
+        matches = parsed["matches"]
+
+        # 6. Update boq_device_selections for each notification item
+        updated = 0
+        for match in matches:
+            bid = match.get("boq_item_id")
+            selectable_id = match.get("selectable_id")
+            reason = match.get("reason")
+
+            if not bid:
+                continue
+
+            sel_info = selectable_lookup.get(selectable_id) if selectable_id else None
+            if selectable_id and not sel_info:
+                logger.warning("Notification reselection: unknown selectable_id %s — treating as null", selectable_id)
+                selectable_id = None
+
+            sel_type = sel_info["selection_type"] if sel_info else "none"
+            p_codes = sel_info["product_codes"] if sel_info else []
+            p_descs = sel_info["product_descriptions"] if sel_info else []
+            row_status = "finalized" if selectable_id else "no_match"
+
+            await self.db.execute(text("""
+                UPDATE boq_device_selections
+                SET selectable_id = :selectable_id,
+                    selection_type = :selection_type,
+                    product_codes = :product_codes,
+                    product_descriptions = :product_descriptions,
+                    reason = :reason,
+                    status = :status,
+                    updated_at = now()
+                WHERE boq_item_id = :bid
+                  AND tenant_id = :tid
+                  AND project_id = :pid
+            """), {
+                "selectable_id": selectable_id,
+                "selection_type": sel_type,
+                "product_codes": p_codes,
+                "product_descriptions": p_descs,
+                "reason": reason,
+                "status": row_status,
+                "bid": bid,
+                "tid": tenant_id,
+                "pid": project_id,
+            })
+            updated += 1
+
+        await self.db.flush()
+        logger.info(
+            "Notification reselection complete: %d items updated to %s",
+            updated, target_type,
+        )
+        return updated
+
+
+_NOTIFICATION_RESELECT_PROMPT = """\
+You are a fire protection notification device selection expert. The user has \
+explicitly chosen {TARGET_TYPE} notification devices for this project. \
+Your task is to re-match each notification BOQ item to the best selectable \
+from the provided catalog.
+
+## CRITICAL CONSTRAINT
+
+The user has explicitly set the notification type to **{TARGET_TYPE}**. \
+ALL selectables in the catalog are {TARGET_TYPE} notification devices. \
+Ignore any indication of addressable or non-addressable in the BOQ text \
+or specification — the user's explicit choice overrides everything. \
+Simply match each BOQ item to the best selectable from the catalog provided.
+
+## Matching Rules
+
+1. **BOQ match phrases**: Each selectable has multiple synonym phrases \
+in its `boq_match_phrases` array. The BOQ item does NOT need to match \
+exactly — match semantically. For example, "horn strobe" should match \
+a selectable with boq_match_phrases like ["Horn Strobe", "Horn/Strobe", \
+"Audible Visual Appliance"].
+
+2. **Specification hints — HIGHEST PRIORITY**: When a selectable has \
+`specification_hints`, check the project specification text for those \
+specific indicators. If the hints are found in the spec, PRIORITIZE that \
+selectable over others — even if another selectable has a closer \
+description match.
+
+3. **Color defaults**: If the BOQ description does NOT specify color, \
+resolve based on mount type: WALL mounted → default to RED; \
+CEILING mounted → default to WHITE. Only apply these defaults when \
+the BOQ description does NOT explicitly specify a color.
+
+4. **Mount defaults**: If the BOQ description does NOT specify ceiling \
+or wall mount, default to WALL mounted variants.
+
+5. **No combos**: No combos exist for notification appliances — match \
+to the best single selectable.
+
+6. **Priority preference**: Some selectables have a `priority` field set \
+to "High". PREFER these (~95% of the time they are correct). HOWEVER, \
+if the BOQ description or specification explicitly mentions specific \
+attributes (wattage, mounting style, weatherproofing) that clearly match \
+a non-priority selectable, choose that more specific match instead.
+
+7. **Matching Rule — CRITICAL**: Match based on actual meaning and purpose, \
+not just keyword overlap. A BOQ item must genuinely BE the device described \
+by a selectable.
+
+8. **No match**: If no selectable in the catalog fits the BOQ item, return \
+selectable_id as null.
+
+IMPORTANT: You MUST return an entry for EVERY boq_item_id provided.
+
+## Output format
+
+Return ONLY valid JSON (no markdown fences):
+{"matches": [{"boq_item_id": "<uuid>", "selectable_id": "<uuid or null>", "reason": "<short explanation>"}]}
+"""
 
 
 # ── Private helpers ──

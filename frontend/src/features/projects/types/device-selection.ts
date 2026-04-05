@@ -36,4 +36,6 @@ export interface DeviceSelectionResultsResponse {
   pagination: PaginationMeta;
   network_type: string | null;
   network_type_auto: string | null;
+  notification_type: string | null;
+  notification_type_auto: string | null;
 }

@@ -252,9 +252,14 @@ async def get_results(
         for row in rows
     ]
 
-    # Fetch network_type from project
+    # Fetch project-level overrides
     proj_result = await db.execute(
-        select(Project.network_type, Project.network_type_auto).where(
+        select(
+            Project.network_type,
+            Project.network_type_auto,
+            Project.notification_type,
+            Project.notification_type_auto,
+        ).where(
             Project.id == project_id,
             Project.tenant_id == tenant_id,
         )
@@ -267,6 +272,8 @@ async def get_results(
         pagination=build_pagination(page, limit, total),
         network_type=proj_row.network_type if proj_row else None,
         network_type_auto=proj_row.network_type_auto if proj_row else None,
+        notification_type=proj_row.notification_type if proj_row else None,
+        notification_type_auto=proj_row.notification_type_auto if proj_row else None,
     )
 
 
@@ -307,3 +314,53 @@ async def override_network_type(
     await db.commit()
 
     return {"network_type": body.network_type, "message": f"Network type manually set to {body.network_type}."}
+
+
+class NotificationTypeOverrideRequest(BaseModel):
+    notification_type: str
+
+
+@router.put(
+    "/notification-type",
+    dependencies=[
+        Depends(require_tenant_domain),
+        Depends(require_tenant_match),
+        require_role("admin", "employee"),
+    ],
+)
+async def override_notification_type(
+    project_id: uuid.UUID,
+    body: NotificationTypeOverrideRequest,
+    request: Request,
+    user: UserContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
+):
+    tenant = request.state.tenant
+    tenant_id = uuid.UUID(tenant["id"])
+    await _verify_project(project_id, user, tenant_id, db)
+
+    if body.notification_type not in ("addressable", "non_addressable"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Notification type must be 'addressable' or 'non_addressable'.",
+        )
+
+    # Update the project column
+    await db.execute(
+        update(Project)
+        .where(Project.id == project_id, Project.tenant_id == tenant_id)
+        .values(notification_type=body.notification_type)
+    )
+    await db.flush()
+
+    # Re-select notification BOQ items with the new type
+    service = DeviceSelectionService(db)
+    updated = await service.reselect_notifications(tenant_id, project_id, body.notification_type)
+
+    await db.commit()
+
+    return {
+        "notification_type": body.notification_type,
+        "updated_count": updated,
+        "message": f"Notification type set to {body.notification_type}. {updated} items re-selected.",
+    }

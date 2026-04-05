@@ -32,4 +32,10 @@ export const deviceSelectionApi = {
       `/projects/${projectId}/device-selection/network-type`,
       { network_type: networkType },
     ),
+
+  overrideNotificationType: (projectId: string, notificationType: string) =>
+    apiClient.put<{ notification_type: string; updated_count: number; message: string }>(
+      `/projects/${projectId}/device-selection/notification-type`,
+      { notification_type: notificationType },
+    ),
 };

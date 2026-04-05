@@ -49,6 +49,8 @@ class DeviceSelectionResultsResponse(BaseModel):
     pagination: PaginationMeta
     network_type: str | None = None
     network_type_auto: str | None = None
+    notification_type: str | None = None
+    notification_type_auto: str | None = None
 
 
 def build_pagination(page: int, limit: int, total: int) -> PaginationMeta:
