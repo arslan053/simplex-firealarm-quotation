@@ -233,6 +233,23 @@ found anywhere, default to "wired" (highest priority). \
 Output the `network_type` field in the JSON response: one of "fiber", "wired", \
 "IP", or null if networking is not needed.
 
+17. **Matching Rule — CRITICAL**: Match based on the actual meaning and purpose of \
+the device, not just keyword overlap. A BOQ or spec item must genuinely BE the \
+device described by a selectable — not merely share a word with it. For example, \
+a "mimic panel" is NOT a detection or notification device, and a "graphic station" \
+is NOT a "graphic annunciator".
+
+18. **Spec-only items (workstation & printer)**: After matching ALL BOQ items, check: \
+(a) WORKSTATION: If the specification mentions a workstation, graphics station, or \
+fire alarm PC, but NO BOQ item was matched to a work_station selectable → add an \
+extra entry in matches with boq_item_id set to "SPEC_ADDED_WORKSTATION" and the \
+appropriate workstation selectable_id (chosen per rules 15a/16). \
+(b) PRINTER: If the specification mentions a printer or printing capability, but \
+NO BOQ item description mentions "printer" → add an extra entry with \
+boq_item_id set to "SPEC_ADDED_PRINTER" and selectable_id as null. \
+If the item IS already in the BOQ — do nothing extra, normal matching applies. Don't apply for other devices even though you find \
+in the specs this special feature is for only printer and workstation.
+
 IMPORTANT: You MUST return an entry for EVERY boq_item_id provided, even \
 if the match is null. Do not skip any item.
 
@@ -419,6 +436,73 @@ class DeviceSelectionService:
                     )
             else:
                 logger.warning("Unexpected LLM response format for batch starting at %d", i)
+
+        # ── 5a. Handle spec-added items (workstation & printer) ──
+        spec_added_markers = [
+            m for m in all_matches
+            if m.get("boq_item_id") in ("SPEC_ADDED_WORKSTATION", "SPEC_ADDED_PRINTER")
+        ]
+        if spec_added_markers:
+            # Get the BOQ document for this project
+            boq_doc_result = await self.db.execute(
+                select(Document).where(
+                    and_(
+                        Document.tenant_id == tenant_id,
+                        Document.project_id == project_id,
+                        Document.type == "BOQ",
+                    )
+                ).limit(1)
+            )
+            boq_doc = boq_doc_result.scalar_one_or_none()
+            if boq_doc:
+                # Get max row_number to assign new rows after existing ones
+                max_row_result = await self.db.execute(
+                    text(
+                        "SELECT COALESCE(MAX(row_number), 0) FROM boq_items"
+                        " WHERE project_id = :pid AND tenant_id = :tid"
+                    ),
+                    {"pid": project_id, "tid": tenant_id},
+                )
+                next_row = (max_row_result.scalar() or 0) + 1
+
+                for match in spec_added_markers:
+                    marker = match["boq_item_id"]
+                    if marker == "SPEC_ADDED_WORKSTATION":
+                        desc = "Workstation (added from specification)"
+                    else:
+                        desc = "Printer (added from specification)"
+
+                    new_item = BoqItem(
+                        tenant_id=tenant_id,
+                        project_id=project_id,
+                        document_id=boq_doc.id,
+                        row_number=next_row,
+                        description=desc,
+                        quantity=1,
+                        type="boq_item",
+                    )
+                    self.db.add(new_item)
+                    await self.db.flush()
+
+                    real_id = str(new_item.id)
+                    match["boq_item_id"] = real_id
+                    boq_items.append(new_item)
+
+                    logger.info(
+                        "Spec-added %s: created BoqItem %s (row %d)",
+                        marker, real_id, next_row,
+                    )
+                    next_row += 1
+            else:
+                logger.warning(
+                    "No BOQ document found — cannot create spec-added items"
+                )
+                # Remove markers since we can't create items for them
+                all_matches = [
+                    m for m in all_matches
+                    if m.get("boq_item_id")
+                    not in ("SPEC_ADDED_WORKSTATION", "SPEC_ADDED_PRINTER")
+                ]
 
         # ── 5b. Store network_type on the project ──
         # Only store if LLM returned a valid type (networking is needed).
