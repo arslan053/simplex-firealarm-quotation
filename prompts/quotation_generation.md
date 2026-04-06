@@ -58,20 +58,24 @@ Subject: Fire Alarm System – Simplex- [project_name]
 Dear Engr, [client_name]
 ```
 
-### Page 1 — Introduction (CONSTANT)
+### Page 1 — Body Sections (DYNAMIC — depends on service option)
+
+The body sections between the greeting and CANCELLATION differ based on the selected service option.
+
+#### Option 1 — Supply Only (default)
+
+**Introduction:**
 ```
 As requested, please find herewith attached our offer for Fire Alarm System.
 ```
 
-### Page 1 — SCOPE (CONSTANT — this is the DEFAULT Option 1 text)
+**SCOPE:**
 ```
 SCOPE
 Price includes Supply of equipment mentioned in attached point-schedule, warranty, programming, testing & commissioning.
 ```
 
-**NOTE:** The SCOPE text changes based on the service option selected (see Service Options below). Only the SCOPE paragraph changes — the rest of the constant sections remain identical.
-
-### Page 1 — EXCLUSIONS (CONSTANT)
+**EXCLUSIONS:**
 ```
 EXCLUSIONS
 Following are excluded from our scope and price: -
@@ -84,13 +88,48 @@ Following are excluded from our scope and price: -
 7. Any cost towards operating the system such as towards an operator for client, etc.
 ```
 
-### Page 1 — WARRANTY (CONSTANT)
+**WARRANTY:**
 ```
 WARRANTY:
 Items supplied by us shall be covered under our standard warranty clause that covers against any material defect or malfunctioning, for a period of 18 months from date of delivery. Product shall be used as intended. Misuse or wrong application will not be covered under warranty. We also hope that project maintenance will be given to us as a separate contract so that we can maintain the system in a proper way.
 
 However our warranty coverage shall not include wear & tear, consumables, abuse/ misuse/ wrong use of components
 ```
+
+#### Options 2/3 — Installation Template
+
+**Introduction:**
+```
+As requested, please find herewith attached our offer for above mentioned systems. The Offer is based on the drawings provided. We have proposed material supply and installation as requested.
+```
+
+**SCOPE:** (varies by option — see Service Options section below)
+
+**Design Change Notice:**
+```
+Any changes in architectural design or material list or system design will change price.
+```
+
+**WARRANTY (short):**
+```
+WARRANTY:
+However, our warranty coverage shall not include wear & tear, consumables, abuse/ misuse/ wrong use of components.
+```
+
+Then after CANCELLATION and LIMITATION OF LIABILITY (same as option 1):
+```
+NOTES & EXCLUSIONS:
+```
+Followed by a 2-column table (number | text) with 9 items:
+1. Terminations in our devices will be done by us and 3rd party side terminations will be done by 3rd party with coordination
+2. Civil related works are excluded. If the delay is because of RGM in supply of material or installation or lack of sufficient manpower then we will coordinate through AFET.
+3. All Electrical Power needed for to be provided by Main contractor.
+4. Material shall be readily available from RGM and work shall not be stopped by not providing access or any other delay.
+5. If work is stopped because of non-availability of access to work for 3 times in a row, labour hourly charges shall be charged extra to Main Contractor.
+6. Installation Payment – As per progress of site – calculated on per point basis – payable with current dated cheque immediately after submission of invoice..
+7. We reserve the right to stop the work if payment is delayed by more than 10 days' time
+8. Work completed shall be checked on daily basis and if anything found not as per approved drawings, we shall be informed immediately. Changes will be done free of cost if our worker did not follow drawings. If any changes pointed out afterwards, it will be charged extra
+9. Scaffolding / man Lift in High Ceiling areas to be provided by MEP Contractor
 
 ### Page 1-2 — CANCELLATION (CONSTANT)
 ```
@@ -132,14 +171,13 @@ In both cases, the backend receives and stores only the final text — no indivi
 
 ### Page 2 — TIME FOR SUPPLIES (CONSTANT)
 ```
-TIME FOR SUPPLIES; DELAY:
-Delivery –10 to 15 DAYS from the date of advance payment with purchase order for peripherals
-4-6 weeks for panels
+TIME FOR SUPPLIES:
+Delivery – 14 to 16 weeks from the date of advance payment receipt. (Partial Delivery against partial payment allowed)
 ```
 
 ### Page 2 — VALIDITY & SIGNATURE (CONSTANT)
 ```
-Validity of Offer – 10 days
+Validity – 30 days
 
 Best regards,
 
@@ -158,36 +196,63 @@ Table with columns: **Model** | **Description** | **Qty** | **Unit Price** | **T
 - Populated from the project's pricing items (after margin is applied)
 - Each row: product code, description, quantity, unit price (SAR with margin), total price
 - Bottom rows:
-  - **TOTAL IN SAR** — sum of all line totals
-  - **VAT** — 15% of total
-  - **GRAND TOTAL IN SAR** — total + VAT
+  - **TOTAL IN SAR** — sum of all product line totals (subtotal)
+  - **Installation Services** (options 2/3 only) — per-device installation charge
+  - **VAT** — 15% of (subtotal + installation amount)
+  - **GRAND TOTAL IN SAR** — subtotal + installation + VAT
 
 ---
 
 ## Service Options (3 Types)
 
-The user selects ONE of these when generating the quotation. The selection affects the **SCOPE** section text and the **EXCLUSIONS** list. For pricing, Option 1 is default (no extra charges). Options 2 and 3 will have additional service charges in the future — for now, just store the selected option.
+The user selects ONE of these when generating the quotation. The selection affects the **entire body template** — Option 1 uses the supply-only template, while Options 2/3 use the installation template (different intro, short warranty, "NOTES & EXCLUSIONS" heading only).
+
+### Installation Services Pricing (Options 2 & 3)
+
+For service options 2 and 3, an **Installation Services** charge is added to the product table based on the number of finalized device selectables in the project:
+
+- **Option 2** (installation without conduiting): `device_count × 480 SAR`
+- **Option 3** (full installation with conduiting): `device_count × 680 SAR`
+- **Option 1** (supply only): no installation charge
+
+**Device count** = SUM of `boq_items.quantity` for all BOQ items that have a finalized device selection (`boq_device_selections.status = 'finalized'` AND `selectable_id IS NOT NULL`). Panels are excluded (they have `status = 'pending_panel'`).
+
+The installation row appears in the product table between **TOTAL IN SAR** and **VAT**:
+```
+| Model | Description              | Qty          | Unit Price | Total Price |
+|-------|--------------------------|--------------|------------|-------------|
+| ...   | (product rows)           | ...          | ...        | ...         |
+|       | TOTAL IN SAR             |              |            | [subtotal]  |
+|       | Installation Services    | [dev_count]  | [rate]     | [amount]    |
+|       | VAT                      |              |            | [vat]       |
+|       | GRAND TOTAL IN SAR       |              |            | [grand]     |
+```
+
+VAT and grand total include the installation amount:
+- `VAT = 15% × (subtotal + installation_amount)`
+- `GRAND TOTAL = subtotal + installation_amount + VAT`
 
 ### Option 1: Products Supply, Supervision & Programming (DEFAULT)
+**Template:** Supply-only (intro → scope → exclusions → full warranty)
 **SCOPE text:**
 ```
 Price includes Supply of equipment mentioned in attached point-schedule, warranty, programming, testing & commissioning.
 ```
-**EXCLUSIONS:** All 7 exclusion items listed (as shown above — installations, cables, conduiting all excluded)
+**EXCLUSIONS:** All 7 exclusion items listed (installations, cables, conduiting all excluded)
 
-### Option 2: Products Supply + Installation + Programming + Conduiting + Cable Pulling + Device Fixing
-**SCOPE text:**
-```
-Price includes Supply of equipment mentioned in attached point-schedule, engineering support which includes preparation of Single Line diagrams, Installation of devices we supplied, conduiting, cable pulling, device fixing, programming, testing and commissioning of equipment we supplied, Client Staff training, O&M Manuals and Warranty support.
-```
-**EXCLUSIONS:** Remove items 2 and 3 from the exclusions list (since installation, cables, and conduiting are now INCLUDED). Remaining exclusions renumber accordingly.
-
-### Option 3: Products Supply + Installation + Programming + Cable Pulling + Device Fixing (no conduiting)
+### Option 2: Supply + Installation (no conduiting)
+**Template:** Installation (intro → scope → design change notice → short warranty → NOTES & EXCLUSIONS heading)
 **SCOPE text:**
 ```
 Price includes Supply of equipment mentioned in attached point-schedule, engineering support which includes preparation of Single Line diagrams, Installation of devices we supplied, cable pulling, device fixing, programming, testing and commissioning of equipment we supplied, Client Staff training, O&M Manuals and Warranty support.
 ```
-**EXCLUSIONS:** Remove item 2 only (installations included). Keep item 3 about conduiting (conduiting still excluded). Remaining exclusions renumber accordingly.
+
+### Option 3: Supply + Full Installation (with conduiting)
+**Template:** Installation (same as Option 2 but scope includes conduiting)
+**SCOPE text:**
+```
+Price includes Supply of equipment mentioned in attached point-schedule, engineering support which includes preparation of Single Line diagrams, Installation of devices we supplied, conduiting, cable pulling, device fixing, programming, testing and commissioning of equipment we supplied, Client Staff training, O&M Manuals and Warranty support.
+```
 
 ---
 

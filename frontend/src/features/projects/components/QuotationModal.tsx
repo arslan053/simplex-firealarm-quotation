@@ -17,8 +17,8 @@ interface QuotationModalProps {
 
 const SERVICE_OPTIONS = [
   { value: 1, label: 'Option 1 - Supply Only', description: 'Supply of equipment, warranty, programming, testing & commissioning' },
-  { value: 2, label: 'Option 2 - Supply + Full Installation', description: 'Supply + engineering, installation, conduiting, cable pulling, programming, T&C' },
-  { value: 3, label: 'Option 3 - Supply + Partial Installation', description: 'Supply + engineering, installation (no conduiting), cable pulling, programming, T&C' },
+  { value: 2, label: 'Option 2 - Supply + Installation (no conduiting)', description: 'Supply + engineering, installation, cable pulling, device fixing, programming, T&C' },
+  { value: 3, label: 'Option 3 - Supply + Full Installation (with conduiting)', description: 'Supply + engineering, installation, conduiting, cable pulling, device fixing, programming, T&C' },
 ];
 
 const DEFAULT_PAYMENT_TEXT = `1) 25% Advance with PO.

@@ -69,6 +69,8 @@ class QuotationData:
     vat: float
     grand_total: float
     payment_terms_text: str | None = None
+    device_count: int = 0
+    installation_amount: float = 0.0
 
 
 def generate_quotation(data: QuotationData) -> bytes:
@@ -79,22 +81,41 @@ def generate_quotation(data: QuotationData) -> bytes:
     _setup_header(doc)
     _setup_footer(doc)
 
-    # Build body content
+    # Build body content — common top section
     _add_client_and_date(doc, data)
     _add_empty_para(doc)
     _add_subject(doc, data.project_name)
     _add_empty_para(doc)
     _add_greeting(doc, data.client_name)
     _add_empty_para(doc)
-    _add_intro(doc)
-    _add_empty_para(doc)
-    _add_scope(doc, data.service_option)
-    _add_empty_para(doc)
-    _add_exclusions(doc, data.service_option)
-    _add_empty_para(doc)
-    _add_warranty(doc)
+
+    if data.service_option == 1:
+        # Supply-only template
+        _add_intro(doc)
+        _add_empty_para(doc)
+        _add_scope(doc, 1)
+        _add_empty_para(doc)
+        _add_exclusions(doc, 1)
+        _add_empty_para(doc)
+        _add_warranty(doc)
+    else:
+        # Installation template (options 2 and 3)
+        _add_intro_installation(doc)
+        _add_empty_para(doc)
+        _add_scope(doc, data.service_option)
+        _add_empty_para(doc)
+        _add_body_text(doc,
+            "Any changes in architectural design or material list or "
+            "system design will change price."
+        )
+        _add_empty_para(doc)
+        _add_warranty_short(doc)
+
+    # Common sections
     _add_cancellation(doc)
     _add_limitation_of_liability(doc)
+    if data.service_option != 1:
+        _add_notes_exclusions(doc)
     _add_prices_and_terms(doc)
     _add_payment_terms(doc, data)
     _add_empty_para(doc)
@@ -207,6 +228,14 @@ def _add_intro(doc: Document) -> None:
     )
 
 
+def _add_intro_installation(doc: Document) -> None:
+    _add_body_text(doc,
+        "As requested, please find herewith attached our offer for above mentioned "
+        "systems. The Offer is based on the drawings provided. We have proposed "
+        "material supply and installation as requested."
+    )
+
+
 def _add_scope(doc: Document, option: int) -> None:
     p = doc.add_paragraph()
     run = p.add_run("SCOPE")
@@ -218,18 +247,20 @@ def _add_scope(doc: Document, option: int) -> None:
             "warranty, programming, testing & commissioning."
         )
     elif option == 2:
-        _add_body_text(doc,
-            "Price includes Supply of equipment mentioned in attached point-schedule, "
-            "engineering support which includes preparation of Single Line diagrams, "
-            "Installation of devices we supplied, conduiting, cable pulling, device fixing, "
-            "programming, testing and commissioning of equipment we supplied, Client Staff "
-            "training, O&M Manuals and Warranty support."
-        )
-    else:  # option 3
+        # Partial installation — no conduiting
         _add_body_text(doc,
             "Price includes Supply of equipment mentioned in attached point-schedule, "
             "engineering support which includes preparation of Single Line diagrams, "
             "Installation of devices we supplied, cable pulling, device fixing, "
+            "programming, testing and commissioning of equipment we supplied, Client Staff "
+            "training, O&M Manuals and Warranty support."
+        )
+    else:  # option 3
+        # Full installation — with conduiting
+        _add_body_text(doc,
+            "Price includes Supply of equipment mentioned in attached point-schedule, "
+            "engineering support which includes preparation of Single Line diagrams, "
+            "Installation of devices we supplied, conduiting, cable pulling, device fixing, "
             "programming, testing and commissioning of equipment we supplied, Client Staff "
             "training, O&M Manuals and Warranty support."
         )
@@ -254,11 +285,11 @@ def _add_exclusions(doc: Document, option: int) -> None:
     ]
 
     if option == 2:
-        # Remove items 2 and 3 (installations + cables/conduiting included)
-        exclusions = [all_exclusions[i] for i in (0, 3, 4, 5, 6)]
-    elif option == 3:
-        # Remove item 2 only (installations included, conduiting still excluded)
+        # Partial — remove item 2 only (conduiting still excluded)
         exclusions = [all_exclusions[i] for i in (0, 2, 3, 4, 5, 6)]
+    elif option == 3:
+        # Full — remove items 2 and 3 (installations + cables/conduiting included)
+        exclusions = [all_exclusions[i] for i in (0, 3, 4, 5, 6)]
     else:
         exclusions = all_exclusions
 
@@ -286,6 +317,85 @@ def _add_warranty(doc: Document) -> None:
         "However our warranty coverage shall not include wear & tear, consumables, "
         "abuse/ misuse/ wrong use of components"
     )
+
+
+def _add_warranty_short(doc: Document) -> None:
+    p = doc.add_paragraph()
+    run = p.add_run("WARRANTY:")
+    _style_run(run, bold=True, underline=True)
+
+    _add_body_text(doc,
+        "However, our warranty coverage shall not include wear & tear, consumables, "
+        "abuse/ misuse/ wrong use of components."
+    )
+
+
+def _add_notes_exclusions(doc: Document) -> None:
+    p = doc.add_paragraph()
+    run = p.add_run("NOTES & EXCLUSIONS:")
+    _style_run(run, bold=True, underline=True)
+
+    items = [
+        "Terminations in our devices will be done by us and 3rd party side terminations will "
+        "be done by 3rd party with coordination",
+        "Civil related works are excluded. If the delay is because of RGM in supply of "
+        "material or installation or lack of sufficient manpower then we will coordinate "
+        "through AFET.",
+        "All Electrical Power needed for to be provided by Main contractor.",
+        "Material shall be readily available from RGM and work shall not be stopped by not "
+        "providing access or any other delay.",
+        "If work is stopped because of non-availability of access to work for 3 times in a "
+        "row, labour hourly charges shall be charged extra to Main Contractor.",
+        "Installation Payment \u2013 As per progress of site \u2013 calculated on per point basis \u2013 "
+        "payable with current dated cheque immediately after submission of invoice..",
+        "We reserve the right to stop the work if payment is delayed by more than 10 days\u2019 "
+        "time",
+        "Work completed shall be checked on daily basis and if anything found not as per "
+        "approved drawings, we shall be informed immediately. Changes will be done free "
+        "of cost if our worker did not follow drawings. If any changes pointed out "
+        "afterwards, it will be charged extra",
+        "Scaffolding / man Lift in High Ceiling areas to be provided by MEP Contractor",
+    ]
+
+    col_num_w = Cm(0.8)
+    col_text_w = Emu(int(_CONTENT_WIDTH) - int(col_num_w))
+
+    table = doc.add_table(rows=len(items), cols=2)
+    table.alignment = WD_TABLE_ALIGNMENT.LEFT
+    table.style = "Table Grid"
+
+    # Force fixed layout so Word doesn't auto-resize columns
+    tbl_pr = table._tbl.tblPr
+    tbl_layout = OxmlElement("w:tblLayout")
+    tbl_layout.set(qn("w:type"), "fixed")
+    tbl_pr.append(tbl_layout)
+
+    # Set grid column widths at table level
+    tbl_grid = table._tbl.tblGrid
+    grid_cols = tbl_grid.findall(qn("w:gridCol"))
+    grid_cols[0].set(qn("w:w"), str(int(col_num_w)))
+    grid_cols[1].set(qn("w:w"), str(int(col_text_w)))
+
+    for i, item in enumerate(items):
+        row = table.rows[i]
+        row.cells[0].width = col_num_w
+        row.cells[1].width = col_text_w
+
+        # Number cell
+        cell_num = row.cells[0]
+        cell_num.vertical_alignment = WD_ALIGN_VERTICAL.TOP
+        p_num = cell_num.paragraphs[0]
+        run_num = p_num.add_run(str(i + 1))
+        run_num.font.name = _FONT_NAME
+        run_num.font.size = _FONT_SIZE
+
+        # Text cell
+        cell_text = row.cells[1]
+        cell_text.vertical_alignment = WD_ALIGN_VERTICAL.TOP
+        p_text = cell_text.paragraphs[0]
+        run_text = p_text.add_run(item)
+        run_text.font.name = _FONT_NAME
+        run_text.font.size = _FONT_SIZE
 
 
 def _add_cancellation(doc: Document) -> None:
@@ -367,19 +477,18 @@ def _add_payment_terms(doc: Document, data: QuotationData) -> None:
 
 def _add_time_for_supplies(doc: Document) -> None:
     p = doc.add_paragraph()
-    run = p.add_run("TIME FOR SUPPLIES; DELAY:")
+    run = p.add_run("TIME FOR SUPPLIES:")
     _style_run(run, bold=True, underline=True)
 
     _add_body_text(doc,
-        "Delivery \u201310 to 15 DAYS from the date of advance payment with purchase "
-        "order for peripherals"
+        "Delivery \u2013 14 to 16 weeks from the date of advance payment receipt. "
+        "(Partial Delivery against partial payment allowed)"
     )
-    _add_body_text(doc, "4-6 weeks for panels")
 
 
 def _add_validity_and_signature(doc: Document) -> None:
     p = doc.add_paragraph()
-    run = p.add_run("Validity of Offer \u2013 10 days")
+    run = p.add_run("Validity \u2013 30 days")
     _style_run(run, bold=True)
 
     _add_empty_para(doc)
@@ -400,7 +509,9 @@ def _add_product_table(doc: Document, data: QuotationData) -> None:
     run = p.add_run()
     run.add_break(WD_BREAK.PAGE)
 
-    num_rows = len(data.products) + 4  # header + products + total + vat + grand total
+    has_installation = data.installation_amount > 0
+    # header + products + total + vat + grand total (+ optional installation row)
+    num_rows = len(data.products) + 4 + (1 if has_installation else 0)
     table = doc.add_table(rows=num_rows, cols=5)
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
     table.style = "Table Grid"
@@ -437,8 +548,22 @@ def _add_product_table(doc: Document, data: QuotationData) -> None:
     _set_table_cell(table.cell(total_row, 4), _format_price(data.subtotal),
                     bold=True, align=WD_ALIGN_PARAGRAPH.RIGHT)
 
+    # Installation services row (options 2/3 only)
+    next_row = total_row + 1
+    if has_installation:
+        install_row = next_row
+        rate = data.installation_amount / data.device_count if data.device_count else 0
+        _set_table_cell(table.cell(install_row, 1), "Installation Services", bold=True)
+        _set_table_cell(table.cell(install_row, 2), str(data.device_count),
+                        align=WD_ALIGN_PARAGRAPH.CENTER)
+        _set_table_cell(table.cell(install_row, 3), _format_price(rate),
+                        align=WD_ALIGN_PARAGRAPH.RIGHT)
+        _set_table_cell(table.cell(install_row, 4), _format_price(data.installation_amount),
+                        bold=True, align=WD_ALIGN_PARAGRAPH.RIGHT)
+        next_row = install_row + 1
+
     # VAT row
-    vat_row = total_row + 1
+    vat_row = next_row
     _set_table_cell(table.cell(vat_row, 1), "VAT", bold=True)
     _set_table_cell(table.cell(vat_row, 4), _format_price(data.vat),
                     bold=True, align=WD_ALIGN_PARAGRAPH.RIGHT)

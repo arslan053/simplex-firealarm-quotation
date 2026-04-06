@@ -85,8 +85,30 @@ class QuotationService:
                     total_price=float(total_price),
                 ))
 
-        vat = (subtotal * Decimal("0.15")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        grand_total = subtotal + vat
+        # 3b. Installation services charge (options 2/3)
+        device_count = 0
+        installation_amount = Decimal(0)
+        if data.service_option in (2, 3):
+            result = await self.db.execute(
+                text("""
+                    SELECT COALESCE(SUM(bi.quantity), 0)
+                    FROM boq_device_selections bds
+                    JOIN boq_items bi ON bi.id = bds.boq_item_id
+                    WHERE bds.tenant_id = :tid AND bds.project_id = :pid
+                      AND bds.status = 'finalized' AND bds.selectable_id IS NOT NULL
+                """),
+                {"tid": tenant_id, "pid": project_id},
+            )
+            device_count = int(result.scalar() or 0)
+            rate = Decimal(480) if data.service_option == 2 else Decimal(680)
+            installation_amount = (rate * device_count).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
+
+        vat = ((subtotal + installation_amount) * Decimal("0.15")).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+        grand_total = subtotal + installation_amount + vat
 
         # 4. Generate reference number
         ref_number = await self._generate_ref_number(tenant_id, user_id, project_id)
@@ -104,6 +126,8 @@ class QuotationService:
             subtotal=float(subtotal),
             vat=float(vat),
             grand_total=float(grand_total),
+            device_count=device_count,
+            installation_amount=float(installation_amount),
         )
         docx_bytes = generate_quotation(qdata)
 
