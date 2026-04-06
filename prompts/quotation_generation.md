@@ -119,11 +119,16 @@ Late payments due and payable to supplier shall attract interest at a rated of 1
 ### Page 2 — PAYMENT TERMS (DYNAMIC)
 ```
 Payment terms :
-  1) [advance_percent]% Advance with PO.
-  2) [delivery_percent]% At time of delivery of material.
-  3) [completion_percent]% After Testing & Commissioning of Fire Alarm System.
+  1) 25% Advance with PO.
+  2) 70% At time of delivery of material.
+  3) 5% After Testing & Commissioning of Fire Alarm System.
 ```
-Default values: 25% / 70% / 5%. User can customize these three percentages.
+The payment terms text is stored as a single free-text field (`payment_terms_text`). The frontend provides two modes:
+
+- **Default mode:** The user enters three percentages (Advance / Delivery / Completion) via number inputs. The text is auto-generated from those percentages and shown in a preview. On submit, the generated text is sent as `payment_terms_text`.
+- **Custom mode:** The user directly edits the payment terms text in a textarea. On submit, that text is sent as `payment_terms_text`.
+
+In both cases, the backend receives and stores only the final text — no individual percentage columns. The DOCX generator renders each line of `payment_terms_text` as a separate paragraph.
 
 ### Page 2 — TIME FOR SUPPLIES (CONSTANT)
 ```
@@ -214,10 +219,8 @@ CREATE TABLE quotations (
     client_name TEXT NOT NULL,
     client_address TEXT NOT NULL,
     service_option INTEGER NOT NULL DEFAULT 1,  -- 1, 2, or 3
-    advance_percent NUMERIC(5,2) NOT NULL DEFAULT 25.00,
-    delivery_percent NUMERIC(5,2) NOT NULL DEFAULT 70.00,
-    completion_percent NUMERIC(5,2) NOT NULL DEFAULT 5.00,
     margin_percent NUMERIC(5,2) NOT NULL DEFAULT 0.00,
+    payment_terms_text TEXT,              -- free-text payment terms (always stored)
 
     -- Generated data
     reference_number TEXT NOT NULL,
@@ -327,19 +330,16 @@ GET  /download          # Get presigned download URL
     "client_name": "Engr. Ali Irfad",
     "client_address": "abc xyz Engineering Co.\nRiyadh",
     "service_option": 1,
-    "advance_percent": 25.0,
-    "delivery_percent": 70.0,
-    "completion_percent": 5.0,
-    "margin_percent": 15.0
+    "margin_percent": 15.0,
+    "payment_terms_text": "1) 25% Advance with PO.\n2) 70% At time of delivery of material.\n3) 5% After Testing & Commissioning of Fire Alarm System."
 }
 ```
 
 **POST /generate** — Logic:
-1. Validate percentages (advance + delivery + completion must equal 100)
-2. Fetch pricing items for this project (must exist — return 400 if not calculated)
-3. Apply margin to each item's unit_cost_sar
-4. Generate reference number
-5. Build DOCX document via `generator.py`
+1. Fetch pricing items for this project (must exist — return 400 if not calculated)
+2. Apply margin to each item's unit_cost_sar
+3. Generate reference number
+4. Build DOCX document via `generator.py` (uses `payment_terms_text` for payment terms section)
 6. If a previous quotation exists for this project:
    - Delete the old file from MinIO
    - Update the existing quotation row
@@ -386,11 +386,10 @@ A modal/dialog with the form:
 - Client Name (text input, prefill from project's `client_name`)
 - Client Address (textarea, prefill from project's `city`)
 
-**Payment Terms:**
-- Advance % (number input, default 25)
-- Delivery % (number input, default 70)
-- Completion % (number input, default 5)
-- Show validation: these must sum to 100
+**Payment Terms** (two modes via Default / Custom toggle):
+- **Default mode:** Three number inputs (Advance %, Delivery %, Completion %) that must sum to 100. A read-only preview below shows the generated text. On submit, the generated text is sent as `payment_terms_text`.
+- **Custom mode:** An editable textarea pre-filled with the generated text (when switching from Default). The user can freely edit the payment terms. On submit, the textarea content is sent as `payment_terms_text`.
+- When restoring from an existing quotation, the stored `payment_terms_text` is loaded into the textarea in Custom mode.
 
 **Margin:** (pre-filled from the margin already set on the pricing page — read-only or editable)
 
@@ -457,7 +456,7 @@ Follow this exact order:
 
 4. **VAT is always 15%** of the subtotal.
 
-5. **Payment percentages must sum to exactly 100.** Validate on both frontend and backend.
+5. **Payment terms are stored as free text** (`payment_terms_text`). The frontend Default mode validates that percentages sum to 100 before generating the text, but the backend only stores and renders the final text string.
 
 6. **One quotation per project.** Regenerating replaces the previous one (delete old MinIO file, update DB row).
 

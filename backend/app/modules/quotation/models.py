@@ -25,18 +25,10 @@ class Quotation(Base, UUIDPrimaryKey, TimestampMixin):
     client_name: Mapped[str] = mapped_column(Text, nullable=False)
     client_address: Mapped[str] = mapped_column(Text, nullable=False)
     service_option: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    advance_percent: Mapped[Decimal] = mapped_column(
-        Numeric(5, 2), nullable=False, default=25.00
-    )
-    delivery_percent: Mapped[Decimal] = mapped_column(
-        Numeric(5, 2), nullable=False, default=70.00
-    )
-    completion_percent: Mapped[Decimal] = mapped_column(
-        Numeric(5, 2), nullable=False, default=5.00
-    )
     margin_percent: Mapped[Decimal] = mapped_column(
         Numeric(5, 2), nullable=False, default=0.00
     )
+    payment_terms_text: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     reference_number: Mapped[str] = mapped_column(Text, nullable=False)
     subtotal_sar: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)

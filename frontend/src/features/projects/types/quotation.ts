@@ -2,10 +2,8 @@ export interface GenerateQuotationRequest {
   client_name: string;
   client_address: string;
   service_option: number;
-  advance_percent: number;
-  delivery_percent: number;
-  completion_percent: number;
   margin_percent: number;
+  payment_terms_text: string;
 }
 
 export interface QuotationResponse {
@@ -15,10 +13,8 @@ export interface QuotationResponse {
   client_name: string;
   client_address: string;
   service_option: number;
-  advance_percent: number;
-  delivery_percent: number;
-  completion_percent: number;
   margin_percent: number;
+  payment_terms_text?: string | null;
   subtotal_sar: number;
   vat_sar: number;
   grand_total_sar: number;

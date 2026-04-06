@@ -64,13 +64,11 @@ class QuotationData:
     generation_date: date
     project_name: str
     service_option: int  # 1, 2, or 3
-    advance_percent: float
-    delivery_percent: float
-    completion_percent: float
     products: list[QuotationProduct]
     subtotal: float
     vat: float
     grand_total: float
+    payment_terms_text: str | None = None
 
 
 def generate_quotation(data: QuotationData) -> bytes:
@@ -359,20 +357,12 @@ def _add_payment_terms(doc: Document, data: QuotationData) -> None:
     run = p.add_run("Payment terms :")
     _style_run(run, bold=True)
 
-    adv = _format_percent(data.advance_percent)
-    dlv = _format_percent(data.delivery_percent)
-    cmp = _format_percent(data.completion_percent)
-
-    items = [
-        f"{adv}% Advance with PO.",
-        f"{dlv}% At time of delivery of material.",
-        f"{cmp}% After Testing & Commissioning of Fire Alarm System.",
-    ]
-    for i, item in enumerate(items, 1):
-        p = doc.add_paragraph()
-        p.style = doc.styles["List Number"]
-        run = p.add_run(f"{i}) {item}")
-        _style_run(run)
+    if data.payment_terms_text:
+        for line in data.payment_terms_text.splitlines():
+            if line.strip():
+                p = doc.add_paragraph()
+                run = p.add_run(line)
+                _style_run(run)
 
 
 def _add_time_for_supplies(doc: Document) -> None:
@@ -572,9 +562,3 @@ def _format_qty(value: int | float) -> str:
     if isinstance(value, float) and value == int(value):
         return str(int(value))
     return str(value)
-
-
-def _format_percent(value: float) -> str:
-    if value == int(value):
-        return str(int(value))
-    return f"{value:.1f}"
