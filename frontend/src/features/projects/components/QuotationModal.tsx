@@ -43,6 +43,7 @@ export function QuotationModal({
 }: QuotationModalProps) {
   const [clientName, setClientName] = useState(existingQuotation?.client_name || '');
   const [clientAddress, setClientAddress] = useState(existingQuotation?.client_address || '');
+  const [subject, setSubject] = useState(existingQuotation?.subject || '');
   const [serviceOption, setServiceOption] = useState(existingQuotation?.service_option || 1);
   const [advancePercent, setAdvancePercent] = useState(25);
   const [deliveryPercent, setDeliveryPercent] = useState(70);
@@ -78,6 +79,7 @@ export function QuotationModal({
     const payload: GenerateQuotationRequest = {
       client_name: clientName.trim(),
       client_address: clientAddress.trim(),
+      subject: subject.trim() || undefined,
       service_option: serviceOption,
       margin_percent: margin,
       payment_terms_text: paymentMode === 'custom'
@@ -136,6 +138,12 @@ export function QuotationModal({
               placeholder="e.g. Riyadh, Saudi Arabia"
               value={clientAddress}
               onChange={(e) => setClientAddress(e.target.value)}
+            />
+            <Input
+              label="Subject"
+              placeholder="e.g. Fire Alarm System – Simplex- Project Name"
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
             />
           </div>
 

@@ -1,6 +1,7 @@
 export interface GenerateQuotationRequest {
   client_name: string;
   client_address: string;
+  subject?: string;
   service_option: number;
   margin_percent: number;
   payment_terms_text: string;
@@ -12,6 +13,7 @@ export interface QuotationResponse {
   reference_number: string;
   client_name: string;
   client_address: string;
+  subject?: string | null;
   service_option: number;
   margin_percent: number;
   payment_terms_text?: string | null;

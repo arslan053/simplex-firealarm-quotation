@@ -68,6 +68,7 @@ class QuotationData:
     subtotal: float
     vat: float
     grand_total: float
+    subject: str | None = None
     payment_terms_text: str | None = None
     device_count: int = 0
     installation_amount: float = 0.0
@@ -83,32 +84,23 @@ def generate_quotation(data: QuotationData) -> bytes:
 
     # Build body content — common top section
     _add_client_and_date(doc, data)
-    _add_empty_para(doc)
-    _add_subject(doc, data.project_name)
-    _add_empty_para(doc)
+    _add_subject(doc, data.subject or f"Fire Alarm System \u2013 Simplex- {data.project_name}")
     _add_greeting(doc, data.client_name)
-    _add_empty_para(doc)
 
     if data.service_option == 1:
         # Supply-only template
         _add_intro(doc)
-        _add_empty_para(doc)
         _add_scope(doc, 1)
-        _add_empty_para(doc)
         _add_exclusions(doc, 1)
-        _add_empty_para(doc)
         _add_warranty(doc)
     else:
         # Installation template (options 2 and 3)
         _add_intro_installation(doc)
-        _add_empty_para(doc)
         _add_scope(doc, data.service_option)
-        _add_empty_para(doc)
         _add_body_text(doc,
             "Any changes in architectural design or material list or "
             "system design will change price."
         )
-        _add_empty_para(doc)
         _add_warranty_short(doc)
 
     # Common sections
@@ -118,9 +110,7 @@ def generate_quotation(data: QuotationData) -> bytes:
         _add_notes_exclusions(doc)
     _add_prices_and_terms(doc)
     _add_payment_terms(doc, data)
-    _add_empty_para(doc)
     _add_time_for_supplies(doc)
-    _add_empty_para(doc)
     _add_validity_and_signature(doc)
     _add_product_table(doc, data)
 
@@ -247,9 +237,9 @@ def _add_client_and_date(doc: Document, data: QuotationData) -> None:
     _style_run(run_ref, bold=True)
 
 
-def _add_subject(doc: Document, project_name: str) -> None:
+def _add_subject(doc: Document, subject_text: str) -> None:
     p = doc.add_paragraph()
-    run = p.add_run(f"Subject: Fire Alarm System \u2013 Simplex- {project_name}")
+    run = p.add_run(f"Subject: {subject_text}")
     _style_run(run)
 
 
@@ -275,6 +265,7 @@ def _add_intro_installation(doc: Document) -> None:
 
 def _add_scope(doc: Document, option: int) -> None:
     p = doc.add_paragraph()
+    _set_para_spacing(p, before=200, after=60)
     run = p.add_run("SCOPE")
     _style_run(run, bold=True, underline=True)
 
@@ -305,6 +296,7 @@ def _add_scope(doc: Document, option: int) -> None:
 
 def _add_exclusions(doc: Document, option: int) -> None:
     p = doc.add_paragraph()
+    _set_para_spacing(p, before=200, after=60)
     run = p.add_run("EXCLUSIONS")
     _style_run(run, bold=True, underline=True)
 
@@ -339,6 +331,7 @@ def _add_exclusions(doc: Document, option: int) -> None:
 
 def _add_warranty(doc: Document) -> None:
     p = doc.add_paragraph()
+    _set_para_spacing(p, before=200, after=60)
     run = p.add_run("WARRANTY:")
     _style_run(run, bold=True, underline=True)
 
@@ -349,7 +342,6 @@ def _add_warranty(doc: Document) -> None:
         "will not be covered under warranty. We also hope that project maintenance will be "
         "given to us as a separate contract so that we can maintain the system in a proper way."
     )
-    _add_empty_para(doc)
     _add_body_text(doc,
         "However our warranty coverage shall not include wear & tear, consumables, "
         "abuse/ misuse/ wrong use of components"
@@ -358,6 +350,7 @@ def _add_warranty(doc: Document) -> None:
 
 def _add_warranty_short(doc: Document) -> None:
     p = doc.add_paragraph()
+    _set_para_spacing(p, before=200, after=60)
     run = p.add_run("WARRANTY:")
     _style_run(run, bold=True, underline=True)
 
@@ -369,6 +362,7 @@ def _add_warranty_short(doc: Document) -> None:
 
 def _add_notes_exclusions(doc: Document) -> None:
     p = doc.add_paragraph()
+    _set_para_spacing(p, before=200, after=60)
     run = p.add_run("NOTES & EXCLUSIONS:")
     _style_run(run, bold=True, underline=True)
 
@@ -395,7 +389,8 @@ def _add_notes_exclusions(doc: Document) -> None:
     ]
 
     col_num_w = Cm(0.8)
-    col_text_w = Emu(int(_CONTENT_WIDTH) - int(col_num_w))
+    table_width = Emu(int(_CONTENT_WIDTH * 0.85))  # 85% of content width
+    col_text_w = Emu(int(table_width) - int(col_num_w))
 
     table = doc.add_table(rows=len(items), cols=2)
     table.alignment = WD_TABLE_ALIGNMENT.LEFT
@@ -406,6 +401,15 @@ def _add_notes_exclusions(doc: Document) -> None:
     tbl_layout = OxmlElement("w:tblLayout")
     tbl_layout.set(qn("w:type"), "fixed")
     tbl_pr.append(tbl_layout)
+
+    # Add cell padding for readability
+    cell_mar = OxmlElement("w:tblCellMar")
+    for edge, val in (("top", "40"), ("bottom", "40"), ("left", "80"), ("right", "80")):
+        el = OxmlElement(f"w:{edge}")
+        el.set(qn("w:w"), val)
+        el.set(qn("w:type"), "dxa")
+        cell_mar.append(el)
+    tbl_pr.append(cell_mar)
 
     # Set grid column widths at table level
     tbl_grid = table._tbl.tblGrid
@@ -418,25 +422,27 @@ def _add_notes_exclusions(doc: Document) -> None:
         row.cells[0].width = col_num_w
         row.cells[1].width = col_text_w
 
-        # Number cell
+        # Number cell — centered vertically
         cell_num = row.cells[0]
-        cell_num.vertical_alignment = WD_ALIGN_VERTICAL.TOP
+        cell_num.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
         p_num = cell_num.paragraphs[0]
+        p_num.alignment = WD_ALIGN_PARAGRAPH.CENTER
         run_num = p_num.add_run(str(i + 1))
         run_num.font.name = _FONT_NAME
-        run_num.font.size = _FONT_SIZE
+        run_num.font.size = Pt(9)
 
-        # Text cell
+        # Text cell — centered vertically
         cell_text = row.cells[1]
-        cell_text.vertical_alignment = WD_ALIGN_VERTICAL.TOP
+        cell_text.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
         p_text = cell_text.paragraphs[0]
         run_text = p_text.add_run(item)
         run_text.font.name = _FONT_NAME
-        run_text.font.size = _FONT_SIZE
+        run_text.font.size = Pt(9)
 
 
 def _add_cancellation(doc: Document) -> None:
     p = doc.add_paragraph()
+    _set_para_spacing(p, before=200, after=60)
     run = p.add_run("CANCELLATION:")
     _style_run(run, bold=True, underline=True)
 
@@ -449,6 +455,7 @@ def _add_cancellation(doc: Document) -> None:
 
 def _add_limitation_of_liability(doc: Document) -> None:
     p = doc.add_paragraph()
+    _set_para_spacing(p, before=200, after=60)
     run = p.add_run("LIMITATION OF LIABILITY:")
     _style_run(run, bold=True, underline=True)
 
@@ -460,7 +467,6 @@ def _add_limitation_of_liability(doc: Document) -> None:
         "cost of capital, or for any special, incidental, punitive, indirect or consequential "
         "damages or for any other loss, costs or expenses of similar type."
     )
-    _add_empty_para(doc)
     _add_body_text(doc,
         "The liability of the supplier for any act or omission, product sold, serviced or "
         "furnished directly or indirectly under this agreement, whether in contract, warranty "
@@ -468,7 +474,6 @@ def _add_limitation_of_liability(doc: Document) -> None:
         "strict liability) indemnity, or any other legal or equitable theory, will in no event "
         "exceed 1% of the contract value."
     )
-    _add_empty_para(doc)
     _add_body_text(doc,
         "The rights and remedies contained in this agreement are exclusive, and the parties "
         "accept these remedies in lieu of all other rights and remedies available at law or "
@@ -480,6 +485,7 @@ def _add_limitation_of_liability(doc: Document) -> None:
 
 def _add_prices_and_terms(doc: Document) -> None:
     p = doc.add_paragraph()
+    _set_para_spacing(p, before=200, after=60)
     run = p.add_run("PRICES AND TERMS OF PAYMENT:")
     _style_run(run, bold=True, underline=True)
 
@@ -487,7 +493,6 @@ def _add_prices_and_terms(doc: Document) -> None:
         "Without prejudice to any further rights, we may suspend and/ or refuse any supplies "
         "for as long as any due payment remains outstanding for whatsoever reason."
     )
-    _add_empty_para(doc)
     _add_body_text(doc,
         "Late payments due and payable to supplier shall attract interest at a rated of 12% "
         "per annum accruing from their due date until full settlement of the principal amount. "
@@ -499,8 +504,8 @@ def _add_prices_and_terms(doc: Document) -> None:
 
 
 def _add_payment_terms(doc: Document, data: QuotationData) -> None:
-    _add_empty_para(doc)
     p = doc.add_paragraph()
+    _set_para_spacing(p, before=160, after=60)
     run = p.add_run("Payment terms :")
     _style_run(run, bold=True)
 
@@ -514,6 +519,7 @@ def _add_payment_terms(doc: Document, data: QuotationData) -> None:
 
 def _add_time_for_supplies(doc: Document) -> None:
     p = doc.add_paragraph()
+    _set_para_spacing(p, before=200, after=60)
     run = p.add_run("TIME FOR SUPPLIES:")
     _style_run(run, bold=True, underline=True)
 
@@ -525,10 +531,9 @@ def _add_time_for_supplies(doc: Document) -> None:
 
 def _add_validity_and_signature(doc: Document) -> None:
     p = doc.add_paragraph()
+    _set_para_spacing(p, before=200, after=100)
     run = p.add_run("Validity \u2013 30 days")
     _style_run(run, bold=True)
-
-    _add_empty_para(doc)
     _add_body_text(doc, "Best regards,")
 
     # Signature image
@@ -635,8 +640,10 @@ def _add_product_table(doc: Document, data: QuotationData) -> None:
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _add_body_text(doc: Document, text: str) -> None:
+def _add_body_text(doc: Document, text: str, space_after: int = 120) -> None:
     p = doc.add_paragraph()
+    p.paragraph_format.space_after = Pt(space_after / 20)  # twips to pt
+    p.paragraph_format.space_before = Pt(0)
     run = p.add_run(text)
     _style_run(run)
 
@@ -645,6 +652,12 @@ def _add_empty_para(doc: Document) -> None:
     p = doc.add_paragraph()
     run = p.add_run("")
     _style_run(run)
+
+
+def _set_para_spacing(paragraph, before: int = 0, after: int = 120) -> None:
+    """Set paragraph spacing in twips. 120 twips ≈ 6pt — standard professional gap."""
+    paragraph.paragraph_format.space_before = Pt(before / 20)
+    paragraph.paragraph_format.space_after = Pt(after / 20)
 
 
 def _style_run(

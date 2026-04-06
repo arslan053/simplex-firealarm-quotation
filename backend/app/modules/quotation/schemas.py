@@ -6,6 +6,7 @@ from pydantic import BaseModel, field_validator
 class GenerateQuotationRequest(BaseModel):
     client_name: str
     client_address: str
+    subject: str | None = None
     service_option: int = 1
     margin_percent: float = 0.0
     payment_terms_text: str | None = None
@@ -24,6 +25,7 @@ class QuotationResponse(BaseModel):
     reference_number: str
     client_name: str
     client_address: str
+    subject: str | None = None
     service_option: int
     margin_percent: float
     payment_terms_text: str | None = None

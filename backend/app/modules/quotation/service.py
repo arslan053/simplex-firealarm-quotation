@@ -123,6 +123,7 @@ class QuotationService:
             generation_date=date.today(),
             project_name=project["project_name"],
             service_option=data.service_option,
+            subject=data.subject,
             payment_terms_text=data.payment_terms_text,
             products=products,
             subtotal=float(subtotal),
@@ -164,6 +165,7 @@ class QuotationService:
                         generated_by_user_id = :uid,
                         client_name = :client_name,
                         client_address = :client_address,
+                        subject = :subject,
                         service_option = :service_option,
                         margin_percent = :margin_percent,
                         payment_terms_text = :payment_terms_text,
@@ -180,6 +182,7 @@ class QuotationService:
                 {
                     "uid": user_id, "client_name": data.client_name,
                     "client_address": data.client_address,
+                    "subject": data.subject,
                     "service_option": data.service_option,
                     "margin_percent": data.margin_percent,
                     "payment_terms_text": data.payment_terms_text,
@@ -198,13 +201,13 @@ class QuotationService:
                 text("""
                     INSERT INTO quotations (
                         id, tenant_id, project_id, generated_by_user_id,
-                        client_name, client_address, service_option,
+                        client_name, client_address, subject, service_option,
                         margin_percent, payment_terms_text, reference_number,
                         subtotal_sar, vat_sar, grand_total_sar,
                         object_key, original_file_name, file_size
                     ) VALUES (
                         :id, :tid, :pid, :uid,
-                        :client_name, :client_address, :service_option,
+                        :client_name, :client_address, :subject, :service_option,
                         :margin_percent, :payment_terms_text, :reference_number,
                         :subtotal, :vat, :grand_total,
                         :object_key, :file_name, :file_size
@@ -214,6 +217,7 @@ class QuotationService:
                     "id": q_id, "tid": tenant_id, "pid": project_id, "uid": user_id,
                     "client_name": data.client_name,
                     "client_address": data.client_address,
+                    "subject": data.subject,
                     "service_option": data.service_option,
                     "margin_percent": data.margin_percent,
                     "payment_terms_text": data.payment_terms_text,
@@ -234,6 +238,7 @@ class QuotationService:
             reference_number=ref_number,
             client_name=data.client_name,
             client_address=data.client_address,
+            subject=data.subject,
             service_option=data.service_option,
             margin_percent=data.margin_percent,
             payment_terms_text=data.payment_terms_text,
@@ -251,7 +256,7 @@ class QuotationService:
         result = await self.db.execute(
             text("""
                 SELECT id, reference_number, client_name, client_address,
-                       service_option, margin_percent, payment_terms_text,
+                       subject, service_option, margin_percent, payment_terms_text,
                        subtotal_sar, vat_sar, grand_total_sar,
                        original_file_name, created_at, updated_at
                 FROM quotations
@@ -269,15 +274,16 @@ class QuotationService:
             reference_number=row[1],
             client_name=row[2],
             client_address=row[3],
-            service_option=row[4],
-            margin_percent=float(row[5]),
-            payment_terms_text=row[6],
-            subtotal_sar=float(row[7]),
-            vat_sar=float(row[8]),
-            grand_total_sar=float(row[9]),
-            original_file_name=row[10],
-            created_at=row[11].isoformat() if row[11] else "",
-            updated_at=row[12].isoformat() if row[12] else "",
+            subject=row[4],
+            service_option=row[5],
+            margin_percent=float(row[6]),
+            payment_terms_text=row[7],
+            subtotal_sar=float(row[8]),
+            vat_sar=float(row[9]),
+            grand_total_sar=float(row[10]),
+            original_file_name=row[11],
+            created_at=row[12].isoformat() if row[12] else "",
+            updated_at=row[13].isoformat() if row[13] else "",
         )
 
     async def get_download_url(
