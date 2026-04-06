@@ -18,7 +18,7 @@ from app.shared.openai_client import get_openai_client
 
 logger = logging.getLogger(__name__)
 
-_BATCH_SIZE = 45
+_BATCH_SIZE = 80
 _PENDING_PANEL_MARKER = "__PENDING_PANEL__"
 
 SYSTEM_PROMPT = """\
