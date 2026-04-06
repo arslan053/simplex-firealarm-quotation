@@ -46,28 +46,30 @@ class QuotationService:
         subtotal = Decimal(0)
 
         for item in pricing_items:
-            # Each pricing item may have multiple product_details
-            # We flatten: one row per product in the quotation
+            # One row per pricing item — merge all product codes into one cell
             details = item["product_details"] or []
             qty = Decimal(str(item["quantity"]))
 
             if details:
-                for d in details:
-                    base_price = Decimal(str(d["price_sar"]))
-                    unit_price = (base_price * margin_mult).quantize(
-                        Decimal("0.01"), rounding=ROUND_HALF_UP
-                    )
-                    total_price = (unit_price * qty).quantize(
-                        Decimal("0.01"), rounding=ROUND_HALF_UP
-                    )
-                    subtotal += total_price
-                    products.append(QuotationProduct(
-                        code=d["code"],
-                        description=item["description"] or d["code"],
-                        quantity=float(qty),
-                        unit_price=float(unit_price),
-                        total_price=float(total_price),
-                    ))
+                # Sum all product prices for combined unit price
+                combined_base = sum(
+                    Decimal(str(d["price_sar"])) for d in details
+                )
+                unit_price = (combined_base * margin_mult).quantize(
+                    Decimal("0.01"), rounding=ROUND_HALF_UP
+                )
+                total_price = (unit_price * qty).quantize(
+                    Decimal("0.01"), rounding=ROUND_HALF_UP
+                )
+                subtotal += total_price
+                codes = "\n".join(d["code"] for d in details)
+                products.append(QuotationProduct(
+                    code=codes,
+                    description=item["description"] or codes,
+                    quantity=float(qty),
+                    unit_price=float(unit_price),
+                    total_price=float(total_price),
+                ))
             else:
                 base_price = Decimal(str(item["unit_cost_sar"]))
                 unit_price = (base_price * margin_mult).quantize(

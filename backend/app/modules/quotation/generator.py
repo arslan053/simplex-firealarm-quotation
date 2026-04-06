@@ -32,19 +32,19 @@ _FONT_COLOR = RGBColor(0, 0, 0)
 # Page setup from template analysis
 _PAGE_WIDTH = Cm(21.00)
 _PAGE_HEIGHT = Cm(29.70)
-_TOP_MARGIN = Cm(3.82)
+_TOP_MARGIN = Cm(4.30)
 _BOTTOM_MARGIN = Cm(2.38)
 _LEFT_MARGIN = Cm(1.91)
 _RIGHT_MARGIN = Cm(2.11)
 _HEADER_DISTANCE = Cm(0.96)
 _FOOTER_DISTANCE = Cm(2.03)
 
-# Table column widths from template analysis
-_COL_MODEL = Cm(3.03)
-_COL_DESC = Cm(7.37)
-_COL_QTY = Cm(1.73)
-_COL_UNIT = Cm(2.80)
-_COL_TOTAL = Cm(3.81)
+# Table column widths — description gets the bulk of space
+_COL_MODEL = Cm(2.62)
+_COL_DESC = Cm(9.82)
+_COL_QTY = Cm(1.50)
+_COL_UNIT = Cm(2.30)
+_COL_TOTAL = Cm(2.50)
 
 
 @dataclass
@@ -152,25 +152,46 @@ def _setup_header(doc: Document) -> None:
     header = section.header
     header.is_linked_to_previous = False
 
-    # Header table: logo left, header text right — full content width
-    tbl = header.add_table(rows=1, cols=2, width=_CONTENT_WIDTH)
-    tbl.alignment = WD_TABLE_ALIGNMENT.CENTER
-    _remove_table_borders(tbl)
+    # Use anchored (floating) images matching reference template exactly
+    p = header.paragraphs[0]
+    run = p.add_run()
+    header_part = header.part
 
-    # Logo cell
-    cell_logo = tbl.cell(0, 0)
-    cell_logo.width = Cm(3.5)
-    p_logo = cell_logo.paragraphs[0]
-    p_logo.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    # Add logo as anchored image
     logo_path = str(_IMAGES_DIR / "logo.png")
-    p_logo.add_run().add_picture(logo_path, width=Cm(3.0))
+    _add_anchored_image(
+        run, logo_path,
+        cx=984250, cy=1031875,       # 2.73cm × 2.87cm
+        pos_h=68580, pos_v=-108585,   # 0.19cm right, 0.30cm above para
+        part=header_part,
+    )
 
-    # Header text cell — fill remaining width
-    cell_text = tbl.cell(0, 1)
-    p_text = cell_text.paragraphs[0]
-    p_text.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    # Add header text as anchored image
     header_text_path = str(_IMAGES_DIR / "header_text.png")
-    p_text.add_run().add_picture(header_text_path, width=Cm(13.5))
+    _add_anchored_image(
+        run, header_text_path,
+        cx=4443730, cy=737235,        # 12.34cm × 2.05cm
+        pos_h=1188000, pos_v=220345,  # 3.30cm right, 0.61cm below para
+        part=header_part,
+    )
+
+    # Give paragraph enough line height so border sits below the floating images
+    # Lowest image bottom = 2.66cm from para; add buffer → 2.90cm ≈ 1644 twips
+    pPr = p._p.get_or_add_pPr()
+    spacing = OxmlElement("w:spacing")
+    spacing.set(qn("w:line"), "1644")
+    spacing.set(qn("w:lineRule"), "exact")
+    pPr.append(spacing)
+
+    # Thin bottom border — professional separator line below header images
+    pBdr = OxmlElement("w:pBdr")
+    bottom = OxmlElement("w:bottom")
+    bottom.set(qn("w:val"), "single")
+    bottom.set(qn("w:sz"), "4")       # 0.5pt thin line
+    bottom.set(qn("w:space"), "1")    # minimal gap between line and spacing
+    bottom.set(qn("w:color"), "A0A0A0")  # subtle gray
+    pBdr.append(bottom)
+    pPr.append(pBdr)
 
 
 def _setup_footer(doc: Document) -> None:
@@ -178,11 +199,16 @@ def _setup_footer(doc: Document) -> None:
     footer = section.footer
     footer.is_linked_to_previous = False
 
+    # Anchored footer image — spans nearly full page width (edge to edge)
     p = footer.paragraphs[0]
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    footer_path = str(_IMAGES_DIR / "footer.png")
     run = p.add_run()
-    run.add_picture(footer_path, width=_CONTENT_WIDTH)
+    footer_path = str(_IMAGES_DIR / "footer.png")
+    _add_anchored_image(
+        run, footer_path,
+        cx=7496175, cy=856615,         # 20.82cm × 2.38cm
+        pos_h=-657225, pos_v=48260,    # -1.83cm left (into margin), 0.13cm below para
+        part=footer.part,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -190,24 +216,35 @@ def _setup_footer(doc: Document) -> None:
 # ---------------------------------------------------------------------------
 
 def _add_client_and_date(doc: Document, data: QuotationData) -> None:
-    # Use a table for left/right alignment
-    tbl = doc.add_table(rows=3, cols=2)
-    _remove_table_borders(tbl)
-
     d = data.generation_date
     day_suffix = _ordinal_suffix(d.day)
     ref_str = f"Ref.: MI/203-C/{data.reference_number}"
 
-    # Row 0: client name | date (with superscript ordinal suffix)
-    _set_cell_text(tbl.cell(0, 0), f"Engr, {data.client_name}", bold=True)
-    _set_date_cell(tbl.cell(0, 1), d.day, day_suffix, d.strftime('%b'), d.year)
+    # Right-tab stop at content width for right-aligned text
+    tab_pos = _CONTENT_WIDTH
 
-    # Row 1: address | ref
-    _set_cell_text(tbl.cell(1, 0), f"{data.client_address},")
-    _set_cell_text(tbl.cell(1, 1), ref_str, bold=True, align=WD_ALIGN_PARAGRAPH.RIGHT)
+    # Line 1: client name [TAB] date
+    p1 = doc.add_paragraph()
+    _add_right_tab_stop(p1, tab_pos)
+    run = p1.add_run(f"Engr, {data.client_name}")
+    _style_run(run, bold=True)
+    p1.add_run("\t")  # tab to right side
+    run_d1 = p1.add_run(f"Date: {d.day}")
+    _style_run(run_d1, bold=True)
+    run_sup = p1.add_run(day_suffix)
+    _style_run(run_sup, bold=True, size=Pt(7))
+    run_sup.font.superscript = True
+    run_d2 = p1.add_run(f" {d.strftime('%b')} {d.year}")
+    _style_run(run_d2, bold=True)
 
-    # Row 2: country
-    _set_cell_text(tbl.cell(2, 0), "Saudi Arabia.")
+    # Line 2: address [TAB] reference
+    p2 = doc.add_paragraph()
+    _add_right_tab_stop(p2, tab_pos)
+    run_addr = p2.add_run(f"{data.client_address},")
+    _style_run(run_addr)
+    p2.add_run("\t")
+    run_ref = p2.add_run(ref_str)
+    _style_run(run_ref, bold=True)
 
 
 def _add_subject(doc: Document, project_name: str) -> None:
@@ -516,13 +553,32 @@ def _add_product_table(doc: Document, data: QuotationData) -> None:
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
     table.style = "Table Grid"
 
-    # Set column widths
+    # Force fixed table layout so Word respects our column widths
+    tbl_pr = table._tbl.tblPr
+    tbl_layout = OxmlElement("w:tblLayout")
+    tbl_layout.set(qn("w:type"), "fixed")
+    tbl_pr.append(tbl_layout)
+
+    # Add small vertical cell padding for breathing room
+    cell_mar = OxmlElement("w:tblCellMar")
+    for edge in ("top", "bottom"):
+        el = OxmlElement(f"w:{edge}")
+        el.set(qn("w:w"), "28")  # ~0.5mm
+        el.set(qn("w:type"), "dxa")
+        cell_mar.append(el)
+    tbl_pr.append(cell_mar)
+
+    # Set grid column widths at the XML level
+    col_widths = [_COL_MODEL, _COL_DESC, _COL_QTY, _COL_UNIT, _COL_TOTAL]
+    tbl_grid = table._tbl.tblGrid
+    grid_cols = tbl_grid.findall(qn("w:gridCol"))
+    for gc, w in zip(grid_cols, col_widths):
+        gc.set(qn("w:w"), str(int(w)))
+
+    # Also set cell widths per row for full compliance
     for row in table.rows:
-        row.cells[0].width = _COL_MODEL
-        row.cells[1].width = _COL_DESC
-        row.cells[2].width = _COL_QTY
-        row.cells[3].width = _COL_UNIT
-        row.cells[4].width = _COL_TOTAL
+        for i, w in enumerate(col_widths):
+            row.cells[i].width = w
 
     # Header row
     headers = ["Model", "Description", "Qty", " Unit\nPrice ", " Total\nPrice "]
@@ -659,6 +715,31 @@ def _shade_cell(cell: _Cell, color: str) -> None:
     cell._tc.get_or_add_tcPr().append(shading)
 
 
+def _add_right_tab_stop(paragraph, position) -> None:
+    """Add a right-aligned tab stop at the given position (EMU)."""
+    pPr = paragraph._p.get_or_add_pPr()
+    tabs = OxmlElement("w:tabs")
+    tab = OxmlElement("w:tab")
+    tab.set(qn("w:val"), "right")
+    tab.set(qn("w:pos"), str(int(position / 635)))  # EMU to twips
+    tabs.append(tab)
+    pPr.append(tabs)
+
+
+def _remove_cell_borders(cell: _Cell) -> None:
+    """Remove all borders from a single table cell."""
+    tc_pr = cell._tc.get_or_add_tcPr()
+    tc_borders = OxmlElement("w:tcBorders")
+    for edge in ("top", "left", "bottom", "right"):
+        el = OxmlElement(f"w:{edge}")
+        el.set(qn("w:val"), "none")
+        el.set(qn("w:sz"), "0")
+        el.set(qn("w:space"), "0")
+        el.set(qn("w:color"), "auto")
+        tc_borders.append(el)
+    tc_pr.append(tc_borders)
+
+
 def _remove_table_borders(table) -> None:
     tbl = table._tbl
     tblPr = tbl.tblPr if tbl.tblPr is not None else OxmlElement("w:tblPr")
@@ -687,3 +768,66 @@ def _format_qty(value: int | float) -> str:
     if isinstance(value, float) and value == int(value):
         return str(int(value))
     return str(value)
+
+
+def _add_anchored_image(
+    run, image_path: str,
+    cx: int, cy: int,
+    pos_h: int, pos_v: int,
+    part=None,
+) -> None:
+    """Add a floating (anchored) image to a run with absolute positioning in EMU."""
+    # Add image part to the document
+    r_element = run._r
+    if part is None:
+        part = r_element.part
+    rId, _image = part.get_or_add_image(image_path)
+
+    # Build the anchor XML matching the reference template structure
+    anchor_xml = (
+        f'<wp:anchor xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"'
+        f' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"'
+        f' xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"'
+        f' xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"'
+        f' behindDoc="1" distT="0" distB="0" distL="114935" distR="114935"'
+        f' simplePos="0" locked="0" layoutInCell="1" allowOverlap="1" relativeHeight="0">'
+        f'  <wp:simplePos x="0" y="0"/>'
+        f'  <wp:positionH relativeFrom="column">'
+        f'    <wp:posOffset>{pos_h}</wp:posOffset>'
+        f'  </wp:positionH>'
+        f'  <wp:positionV relativeFrom="paragraph">'
+        f'    <wp:posOffset>{pos_v}</wp:posOffset>'
+        f'  </wp:positionV>'
+        f'  <wp:extent cx="{cx}" cy="{cy}"/>'
+        f'  <wp:effectExtent l="0" t="0" r="0" b="0"/>'
+        f'  <wp:wrapNone/>'
+        f'  <wp:docPr id="0" name=""/>'
+        f'  <wp:cNvGraphicFramePr>'
+        f'    <a:graphicFrameLocks noChangeAspect="1"/>'
+        f'  </wp:cNvGraphicFramePr>'
+        f'  <a:graphic>'
+        f'    <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">'
+        f'      <pic:pic>'
+        f'        <pic:nvPicPr>'
+        f'          <pic:cNvPr id="0" name=""/>'
+        f'          <pic:cNvPicPr><a:picLocks noChangeAspect="1"/></pic:cNvPicPr>'
+        f'        </pic:nvPicPr>'
+        f'        <pic:blipFill>'
+        f'          <a:blip r:embed="{rId}"/>'
+        f'          <a:stretch><a:fillRect/></a:stretch>'
+        f'        </pic:blipFill>'
+        f'        <pic:spPr>'
+        f'          <a:xfrm><a:off x="0" y="0"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm>'
+        f'          <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>'
+        f'        </pic:spPr>'
+        f'      </pic:pic>'
+        f'    </a:graphicData>'
+        f'  </a:graphic>'
+        f'</wp:anchor>'
+    )
+
+    from lxml import etree
+    drawing = OxmlElement("w:drawing")
+    anchor_el = etree.fromstring(anchor_xml)
+    drawing.append(anchor_el)
+    r_element.append(drawing)
