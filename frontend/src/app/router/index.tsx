@@ -18,6 +18,8 @@ import { ProjectDetailPage } from '@/features/projects/pages/ProjectDetailPage';
 import { DeviceSelectionPage } from '@/features/projects/pages/DeviceSelectionPage';
 import { ProjectResultsPage } from '@/features/projects/pages/ProjectResultsPage';
 import { PricingPage } from '@/features/projects/pages/PricingPage';
+import { ClientListPage } from '@/features/clients/pages/ClientListPage';
+import { ClientDetailPage } from '@/features/clients/pages/ClientDetailPage';
 
 const router = createBrowserRouter([
   {
@@ -48,6 +50,8 @@ const router = createBrowserRouter([
       { index: true, element: <DashboardPage /> },
       { path: 'companies', element: <CompaniesPage /> },
 { path: 'users', element: <UsersPage /> },
+      { path: 'clients', element: <ClientListPage /> },
+      { path: 'clients/:clientId', element: <ClientDetailPage /> },
       { path: 'projects', element: <ProjectListPage /> },
       { path: 'projects/new', element: <CreateProjectPage /> },
       { path: 'projects/:projectId', element: <ProjectDetailPage /> },

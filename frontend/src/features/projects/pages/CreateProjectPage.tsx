@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
@@ -10,10 +10,10 @@ import { Card } from '@/shared/ui/Card';
 import { Button } from '@/shared/ui/Button';
 import { Input } from '@/shared/ui/Input';
 import { normalizeError } from '@/shared/api/errors';
+import { ClientSelector } from '@/features/clients/components/ClientSelector';
 
 const schema = z.object({
   project_name: z.string().min(1, 'Project name is required'),
-  client_name: z.string().min(1, 'Client name is required'),
   country: z.string().min(1, 'Country is required'),
   city: z.string().min(1, 'City is required'),
   due_date: z.string().min(1, 'Due date is required'),
@@ -23,8 +23,13 @@ type FormData = z.infer<typeof schema>;
 
 export function CreateProjectPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [countries, setCountries] = useState<string[]>([]);
   const [submitError, setSubmitError] = useState('');
+
+  // Client selection state
+  const [clientId, setClientId] = useState<string | null>(searchParams.get('clientId'));
+  const [clientError, setClientError] = useState('');
 
   const {
     register,
@@ -40,9 +45,17 @@ export function CreateProjectPage() {
   }, []);
 
   const onSubmit = async (formData: FormData) => {
+    if (!clientId) {
+      setClientError('Please select a client');
+      return;
+    }
+    setClientError('');
     setSubmitError('');
     try {
-      const { data } = await projectsApi.create(formData);
+      const { data } = await projectsApi.create({
+        ...formData,
+        client_id: clientId,
+      });
       navigate(`/projects/${data.id}`);
     } catch (err) {
       setSubmitError(normalizeError(err).message);
@@ -73,12 +86,16 @@ export function CreateProjectPage() {
             {...register('project_name')}
           />
 
-          <Input
-            label="Client Name"
-            placeholder="e.g. Al Rajhi Corp"
-            error={errors.client_name?.message}
-            {...register('client_name')}
-          />
+          <div className="relative">
+            <ClientSelector
+              value={clientId}
+              onChange={(id) => {
+                setClientId(id);
+                setClientError('');
+              }}
+              error={clientError}
+            />
+          </div>
 
           <div className="grid gap-5 sm:grid-cols-2">
             <div>

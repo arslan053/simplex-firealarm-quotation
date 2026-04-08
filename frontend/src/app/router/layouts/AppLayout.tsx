@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Building2, FolderOpen, LayoutDashboard, LogOut, User, Users, Menu, X } from 'lucide-react';
+import { Building2, ContactRound, FolderOpen, LayoutDashboard, LogOut, User, Users, Menu, X } from 'lucide-react';
 import { useState } from 'react';
 
 import { useAuth } from '@/features/auth/hooks/useAuth';
@@ -23,6 +23,7 @@ function getNavItems(role: string, isAdminDomain: boolean): NavItem[] {
   }
 
   if (!isAdminDomain && (role === 'admin' || role === 'employee')) {
+    items.push({ to: '/clients', label: 'Clients', icon: ContactRound });
     items.push({ to: '/projects', label: 'Projects', icon: FolderOpen });
   }
 

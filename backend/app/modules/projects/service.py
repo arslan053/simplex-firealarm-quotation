@@ -8,6 +8,7 @@ from app.modules.projects.countries import (
     normalize_city,
     normalize_country,
 )
+from app.modules.clients.repository import ClientRepository
 from app.modules.projects.repository import ProjectRepository
 from app.modules.projects.schemas import CreateProjectRequest, UpdateProjectRequest
 
@@ -29,11 +30,20 @@ class ProjectService:
                 detail=f"Invalid country '{data.country}'. Must be from the supported countries list.",
             )
 
+        # Validate client_id exists in tenant
+        client_repo = ClientRepository(self.db)
+        client = await client_repo.get_by_id_and_tenant(data.client_id, tenant_id)
+        if not client:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Client not found in this tenant.",
+            )
+
         project = await self.repo.create(
             tenant_id=tenant_id,
             owner_user_id=owner_user_id,
             project_name=data.project_name,
-            client_name=data.client_name,
+            client_id=data.client_id,
             country=normalize_country(data.country),
             city=normalize_city(data.city),
             due_date=data.due_date,
@@ -100,6 +110,17 @@ class ProjectService:
 
         if "city" in update_fields:
             update_fields["city"] = normalize_city(update_fields["city"])
+
+        if "client_id" in update_fields and update_fields["client_id"] is not None:
+            client_repo = ClientRepository(self.db)
+            client = await client_repo.get_by_id_and_tenant(
+                update_fields["client_id"], tenant_id
+            )
+            if not client:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Client not found in this tenant.",
+                )
 
         project = await self.repo.update(project, **update_fields)
         return project

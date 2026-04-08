@@ -8,6 +8,7 @@ from app.database import engine
 from app.middleware.tenant import TenantResolverMiddleware
 from app.modules.auth.router import router as auth_router
 from app.modules.tenants.router import admin_router, resolve_router
+from app.modules.clients.router import router as clients_router
 from app.modules.projects.router import router as projects_router
 from app.modules.boq.router import router as boq_router
 from app.modules.boq.documents_router import router as documents_router
@@ -53,6 +54,7 @@ app.include_router(auth_router)
 app.include_router(resolve_router)
 app.include_router(admin_router)
 app.include_router(tenant_users_router)
+app.include_router(clients_router)
 app.include_router(projects_router)
 app.include_router(boq_router)
 app.include_router(documents_router)

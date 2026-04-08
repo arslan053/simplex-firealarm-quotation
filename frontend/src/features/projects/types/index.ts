@@ -3,7 +3,8 @@ export interface Project {
   tenant_id: string;
   owner_user_id: string;
   project_name: string;
-  client_name: string;
+  client_id?: string | null;
+  client_name?: string | null;
   country: string;
   city: string;
   due_date: string;
@@ -16,7 +17,7 @@ export interface Project {
 export interface ProjectAdmin {
   id: string;
   project_name: string;
-  client_name: string;
+  client_name?: string | null;
   status: 'IN_PROGRESS' | 'IN_REVIEW' | 'COMPLETED';
   created_at: string | null;
   created_by_name: string | null;
@@ -41,7 +42,7 @@ export interface ProjectAdminListResponse {
 
 export interface CreateProjectRequest {
   project_name: string;
-  client_name: string;
+  client_id: string;
   country: string;
   city: string;
   due_date: string;
@@ -49,7 +50,7 @@ export interface CreateProjectRequest {
 
 export interface UpdateProjectRequest {
   project_name?: string;
-  client_name?: string;
+  client_id?: string;
   country?: string;
   city?: string;
   due_date?: string;

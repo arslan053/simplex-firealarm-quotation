@@ -4,6 +4,7 @@ from datetime import date
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.clients.models import Client
 from app.modules.projects.models import Project
 
 
@@ -16,7 +17,7 @@ class ProjectRepository:
         tenant_id: uuid.UUID,
         owner_user_id: uuid.UUID,
         project_name: str,
-        client_name: str,
+        client_id: uuid.UUID,
         country: str,
         city: str,
         due_date: date,
@@ -25,7 +26,7 @@ class ProjectRepository:
             tenant_id=tenant_id,
             owner_user_id=owner_user_id,
             project_name=project_name,
-            client_name=client_name,
+            client_id=client_id,
             country=country,
             city=city,
             due_date=due_date,
@@ -72,25 +73,30 @@ class ProjectRepository:
             Project.tenant_id == tenant_id,
             Project.owner_user_id == owner_user_id,
         )
+        join_needed = False
         if search:
+            join_needed = True
             search_term = f"%{search}%"
             base = and_(
                 base,
                 or_(
                     Project.project_name.ilike(search_term),
-                    Project.client_name.ilike(search_term),
+                    Client.company_name.ilike(search_term),
                 ),
             )
 
-        count_result = await self.db.execute(
-            select(func.count()).select_from(Project).where(base)
-        )
+        count_q = select(func.count()).select_from(Project)
+        if join_needed:
+            count_q = count_q.outerjoin(Client, Project.client_id == Client.id)
+        count_result = await self.db.execute(count_q.where(base))
         total = count_result.scalar_one()
 
         offset = (page - 1) * limit
+        q = select(Project)
+        if join_needed:
+            q = q.outerjoin(Client, Project.client_id == Client.id)
         result = await self.db.execute(
-            select(Project)
-            .where(base)
+            q.where(base)
             .order_by(Project.created_at.desc())
             .offset(offset)
             .limit(limit)
@@ -105,25 +111,30 @@ class ProjectRepository:
         search: str | None = None,
     ) -> tuple[list[Project], int]:
         base = Project.tenant_id == tenant_id
+        join_needed = False
         if search:
+            join_needed = True
             search_term = f"%{search}%"
             base = and_(
                 base,
                 or_(
                     Project.project_name.ilike(search_term),
-                    Project.client_name.ilike(search_term),
+                    Client.company_name.ilike(search_term),
                 ),
             )
 
-        count_result = await self.db.execute(
-            select(func.count()).select_from(Project).where(base)
-        )
+        count_q = select(func.count()).select_from(Project)
+        if join_needed:
+            count_q = count_q.outerjoin(Client, Project.client_id == Client.id)
+        count_result = await self.db.execute(count_q.where(base))
         total = count_result.scalar_one()
 
         offset = (page - 1) * limit
+        q = select(Project)
+        if join_needed:
+            q = q.outerjoin(Client, Project.client_id == Client.id)
         result = await self.db.execute(
-            select(Project)
-            .where(base)
+            q.where(base)
             .order_by(Project.created_at.desc())
             .offset(offset)
             .limit(limit)

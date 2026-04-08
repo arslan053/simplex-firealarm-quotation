@@ -27,6 +27,28 @@ from app.modules.projects.service import ProjectService
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
 
+def _project_response(project) -> ProjectResponse:
+    resp = ProjectResponse.model_validate(project)
+    if project.client_id and project.client:
+        resp.client_name = project.client.company_name
+    return resp
+
+
+def _admin_response(project) -> ProjectAdminResponse:
+    owner_email = project.owner.email if project.owner else None
+    client_name = None
+    if project.client_id and project.client:
+        client_name = project.client.company_name
+    return ProjectAdminResponse(
+        id=project.id,
+        project_name=project.project_name,
+        client_name=client_name,
+        status=project.status,
+        created_at=project.created_at,
+        created_by_name=owner_email,
+    )
+
+
 @router.get("/countries", response_model=list[str])
 async def get_countries():
     """Return the list of valid countries."""
@@ -75,11 +97,13 @@ async def create_project(
         actor_user_id=uuid.UUID(user.id),
         metadata_json={
             "project_name": project.project_name,
-            "client_name": project.client_name,
+            "client_id": str(project.client_id),
         },
     )
 
-    return ProjectResponse.model_validate(project)
+    # Re-fetch so selectin relationships (client, owner) are loaded
+    project = await service.get_project(project.id, tenant_id)
+    return _project_response(project)
 
 
 @router.get(
@@ -109,7 +133,7 @@ async def list_projects(
             tenant_id, uuid.UUID(user.id), page=page, limit=limit, search=search
         )
         return ProjectListResponse(
-            data=[ProjectResponse.model_validate(p) for p in projects],
+            data=[_project_response(p) for p in projects],
             pagination=build_pagination(page, limit, total),
         )
     elif user.role == "admin":
@@ -117,21 +141,8 @@ async def list_projects(
         projects, total = await service.list_projects_for_admin(
             tenant_id, page=page, limit=limit, search=search
         )
-        items = []
-        for p in projects:
-            owner_email = p.owner.email if p.owner else None
-            items.append(
-                ProjectAdminResponse(
-                    id=p.id,
-                    project_name=p.project_name,
-                    client_name=p.client_name,
-                    status=p.status,
-                    created_at=p.created_at,
-                    created_by_name=owner_email,
-                )
-            )
         return ProjectAdminListResponse(
-            data=items,
+            data=[_admin_response(p) for p in projects],
             pagination=build_pagination(page, limit, total),
         )
     else:
@@ -140,7 +151,7 @@ async def list_projects(
             tenant_id, uuid.UUID(user.id), page=page, limit=limit, search=search
         )
         return ProjectListResponse(
-            data=[ProjectResponse.model_validate(p) for p in projects],
+            data=[_project_response(p) for p in projects],
             pagination=build_pagination(page, limit, total),
         )
 
@@ -167,22 +178,14 @@ async def get_project(
         project = await service.get_project(project_id, tenant_id)
         # If admin is the owner, return full view (editable)
         if str(project.owner_user_id) == user.id:
-            return ProjectResponse.model_validate(project)
+            return _project_response(project)
         # Otherwise, return restricted view
-        owner_email = project.owner.email if project.owner else None
-        return ProjectAdminResponse(
-            id=project.id,
-            project_name=project.project_name,
-            client_name=project.client_name,
-            status=project.status,
-            created_at=project.created_at,
-            created_by_name=owner_email,
-        )
+        return _admin_response(project)
     else:
         project = await service.get_own_project(
             project_id, uuid.UUID(user.id), tenant_id
         )
-        return ProjectResponse.model_validate(project)
+        return _project_response(project)
 
 
 @router.patch(
@@ -222,4 +225,6 @@ async def update_project(
         metadata_json=body.model_dump(exclude_unset=True),
     )
 
-    return ProjectResponse.model_validate(project)
+    # Re-fetch so client relationship is loaded after update
+    project = await service.get_project(project.id, tenant_id)
+    return _project_response(project)

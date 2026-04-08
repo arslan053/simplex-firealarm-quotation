@@ -33,7 +33,6 @@ const statusLabel: Record<string, string> = {
 
 const editSchema = z.object({
   project_name: z.string().min(1, 'Required'),
-  client_name: z.string().min(1, 'Required'),
   country: z.string().min(1, 'Required'),
   city: z.string().min(1, 'Required'),
   due_date: z.string().min(1, 'Required'),
@@ -79,7 +78,6 @@ export function ProjectDetailPage() {
         if ('country' in data) {
           reset({
             project_name: data.project_name,
-            client_name: data.client_name,
             country: data.country,
             city: data.city,
             due_date: data.due_date,
@@ -158,7 +156,9 @@ export function ProjectDetailPage() {
               <Badge variant={statusVariant[project.status] || 'default'}>
                 {statusLabel[project.status] || project.status}
               </Badge>
-              <span className="text-sm text-gray-500">{project.client_name}</span>
+              {project.client_name && (
+                <span className="text-sm text-gray-500">{project.client_name}</span>
+              )}
             </div>
           </div>
         </div>
@@ -190,11 +190,6 @@ export function ProjectDetailPage() {
               label="Project Name"
               error={errors.project_name?.message}
               {...register('project_name')}
-            />
-            <Input
-              label="Client Name"
-              error={errors.client_name?.message}
-              {...register('client_name')}
             />
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
@@ -242,7 +237,19 @@ export function ProjectDetailPage() {
           <h2 className="mb-4 text-lg font-semibold text-gray-900">Project Information</h2>
           <div className="grid gap-4 sm:grid-cols-2">
             <InfoItem label="Project Name" value={project.project_name} />
-            <InfoItem label="Client" value={project.client_name} />
+            {'client_id' in project && (project as Project).client_id ? (
+              <div>
+                <p className="text-xs font-medium uppercase text-gray-400">Client</p>
+                <button
+                  onClick={() => navigate(`/clients/${(project as Project).client_id}`)}
+                  className="mt-1 text-sm font-medium text-indigo-600 hover:text-indigo-800"
+                >
+                  {project.client_name || '\u2014'}
+                </button>
+              </div>
+            ) : (
+              <InfoItem label="Client" value={project.client_name || '\u2014'} />
+            )}
             <InfoItem label="Status" value={statusLabel[project.status] || project.status} />
             <InfoItem
               label="Created"

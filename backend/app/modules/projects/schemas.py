@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 class CreateProjectRequest(BaseModel):
     project_name: str = Field(..., min_length=1, max_length=500)
-    client_name: str = Field(..., min_length=1, max_length=500)
+    client_id: UUID
     country: str = Field(default="KSA", min_length=1, max_length=100)
     city: str = Field(..., min_length=1, max_length=200)
     due_date: date
@@ -15,7 +15,7 @@ class CreateProjectRequest(BaseModel):
 
 class UpdateProjectRequest(BaseModel):
     project_name: str | None = Field(None, min_length=1, max_length=500)
-    client_name: str | None = Field(None, min_length=1, max_length=500)
+    client_id: UUID | None = None
     country: str | None = Field(None, min_length=1, max_length=100)
     city: str | None = Field(None, min_length=1, max_length=200)
     due_date: date | None = None
@@ -28,7 +28,8 @@ class ProjectResponse(BaseModel):
     tenant_id: UUID
     owner_user_id: UUID
     project_name: str
-    client_name: str
+    client_id: UUID | None = None
+    client_name: str | None = None
     country: str
     city: str
     due_date: date
@@ -45,7 +46,7 @@ class ProjectAdminResponse(BaseModel):
 
     id: UUID
     project_name: str
-    client_name: str
+    client_name: str | None = None
     status: str
     created_at: datetime | None = None
     created_by_name: str | None = None

@@ -201,7 +201,7 @@ export function ProjectListPage() {
                       </div>
                     </td>
                     <td className="px-4 py-4 text-gray-600 sm:px-6">
-                      <span className="line-clamp-1">{p.client_name}</span>
+                      <span className="line-clamp-1">{p.client_name || '\u2014'}</span>
                     </td>
                     <td className="hidden px-4 py-4 sm:table-cell sm:px-6">
                       <Badge variant={statusVariant[p.status] || 'default'}>

@@ -1,3 +1,4 @@
+import uuid
 from datetime import date
 
 from sqlalchemy import Date, ForeignKey, Index, String, Text
@@ -17,7 +18,9 @@ class Project(Base, UUIDPrimaryKey, TimestampMixin):
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
     )
     project_name: Mapped[str] = mapped_column(Text, nullable=False)
-    client_name: Mapped[str] = mapped_column(Text, nullable=False)
+    client_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("clients.id"), nullable=True
+    )
     country: Mapped[str] = mapped_column(String(100), nullable=False, default="KSA")
     city: Mapped[str] = mapped_column(String(200), nullable=False)
     due_date: Mapped[date] = mapped_column(Date, nullable=False)
@@ -34,6 +37,7 @@ class Project(Base, UUIDPrimaryKey, TimestampMixin):
 
     owner = relationship("User", lazy="selectin")
     tenant = relationship("Tenant", lazy="selectin")
+    client = relationship("Client", lazy="selectin")
 
     __table_args__ = (
         Index("ix_projects_tenant_id", "tenant_id"),
