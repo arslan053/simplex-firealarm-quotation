@@ -22,6 +22,12 @@ from app.modules.boq.schemas import (
     build_pagination,
 )
 from app.shared.storage import upload_file
+from app.shared.upload_security import (
+    check_zip_bomb,
+    sanitize_pdf,
+    validate_file_size,
+    validate_magic_bytes,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -77,12 +83,20 @@ class BoqService:
             )
 
         file_bytes = await file.read()
+        validate_file_size(file_bytes)
+
+        # Detect file type from extension for magic byte check
+        ext = filename.rsplit(".", 1)[-1].lower()
+        validate_magic_bytes(file_bytes, ext)
 
         # Convert legacy .xls → .xlsx so downstream parser (openpyxl) works
         if filename.lower().endswith(".xls") and not filename.lower().endswith(".xlsx"):
             logger.info("Converting .xls to .xlsx: %s", filename)
             file_bytes = _convert_xls_to_xlsx(file_bytes)
             filename = filename.rsplit(".", 1)[0] + ".xlsx"
+
+        # ZIP bomb check on the final .xlsx bytes
+        check_zip_bomb(file_bytes)
 
         file_size = len(file_bytes)
 
@@ -119,6 +133,9 @@ class BoqService:
         validate_pdf_filename(filename)
 
         pdf_bytes = await file.read()
+        validate_file_size(pdf_bytes)
+        validate_magic_bytes(pdf_bytes, "pdf")
+        pdf_bytes = sanitize_pdf(pdf_bytes)
         file_size = len(pdf_bytes)
 
         object_key = upload_pdf_to_minio(tenant_id, project_id, filename, pdf_bytes)

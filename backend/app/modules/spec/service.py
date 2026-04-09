@@ -17,6 +17,7 @@ from app.modules.spec.schemas import (
     build_spec_pagination,
 )
 from app.shared.storage import delete_file, upload_file
+from app.shared.upload_security import sanitize_pdf, validate_file_size, validate_magic_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -55,8 +56,11 @@ class SpecService:
                 detail="Only .pdf files are supported",
             )
 
-        # Read file bytes
+        # Read file bytes and run security checks
         file_bytes = await file.read()
+        validate_file_size(file_bytes)
+        validate_magic_bytes(file_bytes, "pdf")
+        file_bytes = sanitize_pdf(file_bytes)
         file_size = len(file_bytes)
 
         # Delete old spec if exists (blocks + document + MinIO file)
