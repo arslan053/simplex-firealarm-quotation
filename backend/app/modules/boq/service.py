@@ -24,6 +24,7 @@ from app.modules.boq.schemas import (
 from app.shared.storage import upload_file
 from app.shared.upload_security import (
     check_zip_bomb,
+    sanitize_filename,
     sanitize_pdf,
     validate_file_size,
     validate_magic_bytes,
@@ -75,12 +76,13 @@ class BoqService:
         user_id: uuid.UUID,
         file: UploadFile,
     ) -> DocumentResponse:
-        filename = file.filename or "unknown.xlsx"
-        if not filename.lower().endswith(_ALLOWED_EXCEL_EXTS):
+        raw_name = file.filename or "unknown.xlsx"
+        if not raw_name.lower().endswith(_ALLOWED_EXCEL_EXTS):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Only .xlsx and .xls files are supported",
             )
+        filename = sanitize_filename(raw_name)
 
         file_bytes = await file.read()
         validate_file_size(file_bytes)
@@ -129,8 +131,9 @@ class BoqService:
         user_id: uuid.UUID,
         file: UploadFile,
     ) -> DocumentResponse:
-        filename = file.filename or "unknown.pdf"
-        validate_pdf_filename(filename)
+        raw_name = file.filename or "unknown.pdf"
+        validate_pdf_filename(raw_name)
+        filename = sanitize_filename(raw_name)
 
         pdf_bytes = await file.read()
         validate_file_size(pdf_bytes)

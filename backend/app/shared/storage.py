@@ -87,14 +87,25 @@ def upload_file(
     )
 
 
-def get_file_url(object_key: str, expires_hours: int = 1) -> str:
+def get_file_url(
+    object_key: str,
+    tenant_id: str | None = None,
+    expires_minutes: int = 10,
+) -> str:
     from datetime import timedelta
+
+    if tenant_id and not object_key.startswith(f"{tenant_id}/"):
+        logger.warning(
+            "Tenant mismatch on presigned URL: tenant=%s, key=%s",
+            tenant_id, object_key,
+        )
+        raise ValueError("Access denied")
 
     client = _get_presign_client()
     return client.presigned_get_object(
         settings.MINIO_BUCKET,
         object_key,
-        expires=timedelta(hours=expires_hours),
+        expires=timedelta(minutes=expires_minutes),
     )
 
 

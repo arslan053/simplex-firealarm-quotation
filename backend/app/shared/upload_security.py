@@ -5,6 +5,7 @@ Each function raises HTTPException on failure so callers just call and continue.
 """
 
 import logging
+import re
 import zipfile
 from io import BytesIO
 
@@ -224,3 +225,24 @@ def validate_and_clean_image(file_bytes: bytes) -> bytes:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=_REJECTED_MSG,
         )
+
+
+# ---------------------------------------------------------------------------
+# 6. Filename sanitization
+# ---------------------------------------------------------------------------
+def sanitize_filename(filename: str) -> str:
+    """Sanitize an uploaded filename — strip path components and unsafe characters.
+
+    Keeps only alphanumerics, hyphens, underscores, periods, and spaces.
+    """
+    # Extract just the filename (remove any path separators)
+    name = filename.replace("\\", "/").split("/")[-1]
+    # Keep only safe characters
+    name = re.sub(r"[^a-zA-Z0-9._\- ]", "_", name)
+    # Collapse multiple underscores/spaces
+    name = re.sub(r"_+", "_", name)
+    # Prevent hidden files or empty names
+    if not name or name.startswith("."):
+        name = "uploaded_file"
+    # Limit length
+    return name[:200]

@@ -7,6 +7,7 @@ from fastapi import HTTPException, UploadFile, status
 from app.modules.boq.image_utils import combine_images_to_pdf
 from app.shared.storage import upload_file
 from app.shared.upload_security import (
+    sanitize_filename,
     validate_and_clean_image,
     validate_file_size,
     validate_magic_bytes,
@@ -38,7 +39,7 @@ async def read_image_files(files: list[UploadFile]) -> list[tuple[str, bytes]]:
         ext = (f.filename or "image.png").rsplit(".", 1)[-1].lower()
         validate_magic_bytes(data, ext)
         data = validate_and_clean_image(data)
-        images.append((f.filename or "image.png", data))
+        images.append((sanitize_filename(f.filename or "image.png"), data))
     return images
 
 

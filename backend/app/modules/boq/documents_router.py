@@ -80,5 +80,5 @@ async def get_document_view_url(
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    url = get_file_url(doc.object_key)
+    url = get_file_url(doc.object_key, tenant_id=str(tenant_id))
     return DocumentViewUrlResponse(url=url)

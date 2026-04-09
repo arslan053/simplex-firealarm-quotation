@@ -17,7 +17,12 @@ from app.modules.spec.schemas import (
     build_spec_pagination,
 )
 from app.shared.storage import delete_file, upload_file
-from app.shared.upload_security import sanitize_pdf, validate_file_size, validate_magic_bytes
+from app.shared.upload_security import (
+    sanitize_filename,
+    sanitize_pdf,
+    validate_file_size,
+    validate_magic_bytes,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -49,12 +54,13 @@ class SpecService:
         file: UploadFile,
     ) -> SpecUploadResponse:
         # Validate file extension
-        filename = file.filename or "unknown.pdf"
-        if not filename.lower().endswith(".pdf"):
+        raw_name = file.filename or "unknown.pdf"
+        if not raw_name.lower().endswith(".pdf"):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Only .pdf files are supported",
             )
+        filename = sanitize_filename(raw_name)
 
         # Read file bytes and run security checks
         file_bytes = await file.read()

@@ -301,7 +301,7 @@ class QuotationService:
         if not row:
             return None
 
-        url = get_file_url(row[0])
+        url = get_file_url(row[0], tenant_id=str(tenant_id))
         return QuotationDownloadResponse(url=url, file_name=row[1])
 
     async def get_preview_pdf(
