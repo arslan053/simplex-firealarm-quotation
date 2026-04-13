@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,7 +15,12 @@ from app.dependencies.auth import (
     UserContext,
 )
 
-from .schemas import GenerateQuotationRequest, QuotationDownloadResponse, QuotationResponse
+from .schemas import (
+    GenerateQuotationRequest,
+    InclusionQuestionsResponse,
+    QuotationDownloadResponse,
+    QuotationResponse,
+)
 from .service import QuotationService
 
 router = APIRouter(
@@ -27,6 +32,23 @@ router = APIRouter(
         require_role("admin", "employee"),
     ],
 )
+
+
+@router.get("/inclusions", response_model=InclusionQuestionsResponse)
+async def get_inclusions(
+    project_id: str,
+    request: Request,
+    service_option: int = Query(ge=1, le=3),
+    db: AsyncSession = Depends(get_tenant_db),
+    user: UserContext = Depends(get_current_user),
+):
+    tenant = request.state.tenant
+    tenant_id = uuid.UUID(tenant["id"])
+    pid = uuid.UUID(project_id)
+
+    service = QuotationService(db)
+    questions = await service.get_inclusion_questions(tenant_id, pid, service_option)
+    return InclusionQuestionsResponse(questions=questions)
 
 
 @router.post("/generate", response_model=QuotationResponse)

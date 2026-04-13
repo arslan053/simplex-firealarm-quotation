@@ -1,6 +1,7 @@
 import { apiClient } from '@/shared/api/client';
 import type {
   GenerateQuotationRequest,
+  InclusionQuestion,
   QuotationDownloadResponse,
   QuotationResponse,
 } from '../types/quotation';
@@ -10,6 +11,12 @@ export const quotationApi = {
     apiClient.post<QuotationResponse>(
       `/projects/${projectId}/quotation/generate`,
       data,
+    ),
+
+  getInclusions: (projectId: string, serviceOption: number) =>
+    apiClient.get<{ questions: InclusionQuestion[] }>(
+      `/projects/${projectId}/quotation/inclusions`,
+      { params: { service_option: serviceOption } },
     ),
 
   get: (projectId: string) =>

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import subprocess
 import tempfile
 import uuid
@@ -15,12 +16,42 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.shared.storage import delete_file, get_file_bytes, get_file_url, upload_file
 
 from .generator import QuotationData, QuotationProduct, generate_quotation
+from .inclusions import get_questions_for_option
 from .schemas import GenerateQuotationRequest, QuotationDownloadResponse, QuotationResponse
 
 
 class QuotationService:
     def __init__(self, db: AsyncSession):
         self.db = db
+
+    async def get_inclusion_questions(
+        self, tenant_id: uuid.UUID, project_id: uuid.UUID, service_option: int
+    ) -> list[dict]:
+        questions = get_questions_for_option(service_option)
+        result = []
+        for q in questions:
+            value = None
+            if q.mode == "auto_detect" and q.auto_detect_subcategory:
+                row = await self.db.execute(
+                    text("""
+                        SELECT COUNT(*) FROM boq_device_selections bds
+                        JOIN selectables s ON s.id = bds.selectable_id
+                        WHERE bds.tenant_id = :tid AND bds.project_id = :pid
+                          AND bds.status = 'finalized'
+                          AND s.subcategory = :subcat
+                    """),
+                    {"tid": tenant_id, "pid": project_id, "subcat": q.auto_detect_subcategory},
+                )
+                count = row.scalar() or 0
+                value = count > 0
+            result.append({
+                "key": q.key,
+                "text": q.text,
+                "mode": q.mode,
+                "value": value,
+                "group": q.group,
+            })
+        return result
 
     async def generate(
         self,
@@ -131,6 +162,7 @@ class QuotationService:
             grand_total=float(grand_total),
             device_count=device_count,
             installation_amount=float(installation_amount),
+            inclusion_answers=data.inclusion_answers,
         )
         docx_bytes = generate_quotation(qdata)
 
@@ -169,6 +201,7 @@ class QuotationService:
                         service_option = :service_option,
                         margin_percent = :margin_percent,
                         payment_terms_text = :payment_terms_text,
+                        inclusion_answers = CAST(:inclusion_answers AS jsonb),
                         reference_number = :reference_number,
                         subtotal_sar = :subtotal,
                         vat_sar = :vat,
@@ -186,6 +219,7 @@ class QuotationService:
                     "service_option": data.service_option,
                     "margin_percent": data.margin_percent,
                     "payment_terms_text": data.payment_terms_text,
+                    "inclusion_answers": json.dumps(data.inclusion_answers),
                     "reference_number": ref_number,
                     "subtotal": float(subtotal), "vat": float(vat),
                     "grand_total": float(grand_total),
@@ -202,13 +236,15 @@ class QuotationService:
                     INSERT INTO quotations (
                         id, tenant_id, project_id, generated_by_user_id,
                         client_name, client_address, subject, service_option,
-                        margin_percent, payment_terms_text, reference_number,
+                        margin_percent, payment_terms_text, inclusion_answers,
+                        reference_number,
                         subtotal_sar, vat_sar, grand_total_sar,
                         object_key, original_file_name, file_size
                     ) VALUES (
                         :id, :tid, :pid, :uid,
                         :client_name, :client_address, :subject, :service_option,
-                        :margin_percent, :payment_terms_text, :reference_number,
+                        :margin_percent, :payment_terms_text, CAST(:inclusion_answers AS jsonb),
+                        :reference_number,
                         :subtotal, :vat, :grand_total,
                         :object_key, :file_name, :file_size
                     )
@@ -221,6 +257,7 @@ class QuotationService:
                     "service_option": data.service_option,
                     "margin_percent": data.margin_percent,
                     "payment_terms_text": data.payment_terms_text,
+                    "inclusion_answers": json.dumps(data.inclusion_answers),
                     "reference_number": ref_number,
                     "subtotal": float(subtotal), "vat": float(vat),
                     "grand_total": float(grand_total),
@@ -242,6 +279,7 @@ class QuotationService:
             service_option=data.service_option,
             margin_percent=data.margin_percent,
             payment_terms_text=data.payment_terms_text,
+            inclusion_answers=data.inclusion_answers,
             subtotal_sar=float(subtotal),
             vat_sar=float(vat),
             grand_total_sar=float(grand_total),
@@ -257,6 +295,7 @@ class QuotationService:
             text("""
                 SELECT id, reference_number, client_name, client_address,
                        subject, service_option, margin_percent, payment_terms_text,
+                       inclusion_answers,
                        subtotal_sar, vat_sar, grand_total_sar,
                        original_file_name, created_at, updated_at
                 FROM quotations
@@ -278,12 +317,13 @@ class QuotationService:
             service_option=row[5],
             margin_percent=float(row[6]),
             payment_terms_text=row[7],
-            subtotal_sar=float(row[8]),
-            vat_sar=float(row[9]),
-            grand_total_sar=float(row[10]),
-            original_file_name=row[11],
-            created_at=row[12].isoformat() if row[12] else "",
-            updated_at=row[13].isoformat() if row[13] else "",
+            inclusion_answers=row[8] if row[8] else {},
+            subtotal_sar=float(row[9]),
+            vat_sar=float(row[10]),
+            grand_total_sar=float(row[11]),
+            original_file_name=row[12],
+            created_at=row[13].isoformat() if row[13] else "",
+            updated_at=row[14].isoformat() if row[14] else "",
         )
 
     async def get_download_url(
@@ -351,9 +391,10 @@ class QuotationService:
     async def _get_project(self, tenant_id: uuid.UUID, project_id: uuid.UUID) -> dict:
         result = await self.db.execute(
             text("""
-                SELECT project_name, client_name, city
-                FROM projects
-                WHERE id = :pid AND tenant_id = :tid
+                SELECT p.project_name, c.name, p.city
+                FROM projects p
+                LEFT JOIN clients c ON c.id = p.client_id
+                WHERE p.id = :pid AND p.tenant_id = :tid
             """),
             {"tid": tenant_id, "pid": project_id},
         )

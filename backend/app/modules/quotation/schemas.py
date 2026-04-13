@@ -10,6 +10,7 @@ class GenerateQuotationRequest(BaseModel):
     service_option: int = 1
     margin_percent: float = 0.0
     payment_terms_text: str | None = None
+    inclusion_answers: dict[str, bool] = {}
 
     @field_validator("service_option")
     @classmethod
@@ -29,12 +30,25 @@ class QuotationResponse(BaseModel):
     service_option: int
     margin_percent: float
     payment_terms_text: str | None = None
+    inclusion_answers: dict[str, bool] = {}
     subtotal_sar: float
     vat_sar: float
     grand_total_sar: float
     original_file_name: str
     created_at: str
     updated_at: str
+
+
+class InclusionQuestionItem(BaseModel):
+    key: str
+    text: str
+    mode: str
+    value: bool | None
+    group: str | None
+
+
+class InclusionQuestionsResponse(BaseModel):
+    questions: list[InclusionQuestionItem]
 
 
 class QuotationDownloadResponse(BaseModel):

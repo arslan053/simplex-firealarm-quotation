@@ -72,6 +72,7 @@ class QuotationData:
     payment_terms_text: str | None = None
     device_count: int = 0
     installation_amount: float = 0.0
+    inclusion_answers: dict[str, bool] | None = None
 
 
 def generate_quotation(data: QuotationData) -> bytes:
@@ -91,7 +92,6 @@ def generate_quotation(data: QuotationData) -> bytes:
         # Supply-only template
         _add_intro(doc)
         _add_scope(doc, 1)
-        _add_exclusions(doc, 1)
         _add_warranty(doc)
     else:
         # Installation template (options 2 and 3)
@@ -106,8 +106,7 @@ def generate_quotation(data: QuotationData) -> bytes:
     # Common sections
     _add_cancellation(doc)
     _add_limitation_of_liability(doc)
-    if data.service_option != 1:
-        _add_notes_exclusions(doc)
+    _add_notes_exclusions(doc, data)
     _add_prices_and_terms(doc)
     _add_payment_terms(doc, data)
     _add_time_for_supplies(doc)
@@ -294,41 +293,6 @@ def _add_scope(doc: Document, option: int) -> None:
         )
 
 
-def _add_exclusions(doc: Document, option: int) -> None:
-    p = doc.add_paragraph()
-    _set_para_spacing(p, before=200, after=60)
-    run = p.add_run("EXCLUSIONS")
-    _style_run(run, bold=True, underline=True)
-
-    _add_body_text(doc, "Following are excluded from our scope and price: -")
-
-    # Build exclusion items based on option
-    all_exclusions = [
-        "Any kind of civil works",
-        "Any Kind of Installations or programming",
-        "Any kind of cables supply and wiring together with allied works such as cable trays, trunking conduiting at field end in panels.",
-        "Any kind of starters panels, MCC panels.",
-        "Fittings & fixtures for peripherals, Actuators.",
-        "Any other item not specifically mentioned by us in this offer.",
-        "Any cost towards operating the system such as towards an operator for client, etc.",
-    ]
-
-    if option == 2:
-        # Partial — remove item 2 only (conduiting still excluded)
-        exclusions = [all_exclusions[i] for i in (0, 2, 3, 4, 5, 6)]
-    elif option == 3:
-        # Full — remove items 2 and 3 (installations + cables/conduiting included)
-        exclusions = [all_exclusions[i] for i in (0, 3, 4, 5, 6)]
-    else:
-        exclusions = all_exclusions
-
-    for i, item in enumerate(exclusions, 1):
-        p = doc.add_paragraph()
-        p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-        run = p.add_run(f"{i}. {item}")
-        _style_run(run)
-
-
 def _add_warranty(doc: Document) -> None:
     p = doc.add_paragraph()
     _set_para_spacing(p, before=200, after=60)
@@ -360,33 +324,21 @@ def _add_warranty_short(doc: Document) -> None:
     )
 
 
-def _add_notes_exclusions(doc: Document) -> None:
+def _add_notes_exclusions(doc: Document, data: QuotationData) -> None:
+    from .inclusions import build_document_items
+
+    items = build_document_items(
+        data.service_option,
+        data.inclusion_answers or {},
+    )
+
+    if not items:
+        return
+
     p = doc.add_paragraph()
     _set_para_spacing(p, before=200, after=60)
     run = p.add_run("NOTES & EXCLUSIONS:")
     _style_run(run, bold=True, underline=True)
-
-    items = [
-        "Terminations in our devices will be done by us and 3rd party side terminations will "
-        "be done by 3rd party with coordination",
-        "Civil related works are excluded. If the delay is because of RGM in supply of "
-        "material or installation or lack of sufficient manpower then we will coordinate "
-        "through AFET.",
-        "All Electrical Power needed for to be provided by Main contractor.",
-        "Material shall be readily available from RGM and work shall not be stopped by not "
-        "providing access or any other delay.",
-        "If work is stopped because of non-availability of access to work for 3 times in a "
-        "row, labour hourly charges shall be charged extra to Main Contractor.",
-        "Installation Payment \u2013 As per progress of site \u2013 calculated on per point basis \u2013 "
-        "payable with current dated cheque immediately after submission of invoice..",
-        "We reserve the right to stop the work if payment is delayed by more than 10 days\u2019 "
-        "time",
-        "Work completed shall be checked on daily basis and if anything found not as per "
-        "approved drawings, we shall be informed immediately. Changes will be done free "
-        "of cost if our worker did not follow drawings. If any changes pointed out "
-        "afterwards, it will be charged extra",
-        "Scaffolding / man Lift in High Ceiling areas to be provided by MEP Contractor",
-    ]
 
     col_num_w = Cm(0.8)
     table_width = Emu(int(_CONTENT_WIDTH * 0.85))  # 85% of content width
