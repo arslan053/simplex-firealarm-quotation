@@ -73,6 +73,17 @@ class TenantService:
             ),
         )
 
+        # Seed default product prices for the new tenant
+        await self.db.execute(
+            text("""
+                INSERT INTO tenant_product_prices (tenant_id, product_id, price, currency)
+                SELECT :tid, p.id, COALESCE(p.price, 0), p.currency
+                FROM products p
+            """),
+            {"tid": tenant.id},
+        )
+        await self.db.commit()
+
         return tenant, admin_user
 
     async def delete_tenant(self, tenant_id: uuid.UUID):
@@ -82,6 +93,7 @@ class TenantService:
 
         # Delete all related data in correct order (foreign key deps)
         for table in [
+            "tenant_product_prices",
             "boq_device_selections",
             "analysis_answers",
             "spec_blocks",

@@ -194,11 +194,13 @@ class PricingService:
                     bi.description AS boq_description,
                     bi.quantity AS boq_quantity,
                     p.code AS product_code,
-                    p.price AS product_price_usd
+                    COALESCE(tpp.price, p.price, 0) AS product_price_usd
                 FROM boq_device_selections bds
                 JOIN boq_items bi ON bi.id = bds.boq_item_id
                 JOIN selectable_products sp ON sp.selectable_id = bds.selectable_id
                 LEFT JOIN products p ON p.id = sp.product_id
+                LEFT JOIN tenant_product_prices tpp
+                    ON tpp.product_id = p.id AND tpp.tenant_id = bds.tenant_id
                 WHERE bds.tenant_id = :tid
                   AND bds.project_id = :pid
                   AND bds.status = 'finalized'
@@ -281,10 +283,12 @@ class PricingService:
                     ps.id,
                     ps.product_code,
                     p.description AS product_description,
-                    p.price AS product_price_usd,
+                    COALESCE(tpp.price, p.price, 0) AS product_price_usd,
                     ps.quantity AS ps_quantity
                 FROM panel_selections ps
                 LEFT JOIN products p ON p.code = ps.product_code
+                LEFT JOIN tenant_product_prices tpp
+                    ON tpp.product_id = p.id AND tpp.tenant_id = ps.tenant_id
                 WHERE ps.tenant_id = :tid
                   AND ps.project_id = :pid
                 ORDER BY ps.created_at
