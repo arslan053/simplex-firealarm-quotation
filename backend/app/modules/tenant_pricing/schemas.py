@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from pydantic import BaseModel
+import math
+
+from pydantic import BaseModel, Field, field_validator
 
 
 class TenantProductPrice(BaseModel):
@@ -20,7 +22,14 @@ class PriceListResponse(BaseModel):
 
 class PriceUpdateItem(BaseModel):
     product_id: str
-    price: float
+    price: float = Field(ge=0, le=999_999_999)
+
+    @field_validator("price")
+    @classmethod
+    def price_must_be_finite(cls, v: float) -> float:
+        if not math.isfinite(v):
+            raise ValueError("Price must be a finite number")
+        return round(v, 3)
 
 
 class PriceUpdateRequest(BaseModel):
