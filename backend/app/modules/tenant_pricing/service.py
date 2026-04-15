@@ -3,11 +3,18 @@ from __future__ import annotations
 import io
 import uuid
 
+from fastapi import HTTPException
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill, Protection
 from openpyxl.utils import get_column_letter
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.shared.upload_security import (
+    check_zip_bomb,
+    validate_file_size,
+    validate_magic_bytes,
+)
 
 from .schemas import (
     PriceListResponse,
@@ -179,7 +186,18 @@ class TenantPricingService:
         tenant_id: uuid.UUID,
         file_bytes: bytes,
     ) -> UploadResponse:
-        wb = load_workbook(io.BytesIO(file_bytes), read_only=True)
+        validate_file_size(file_bytes)
+        validate_magic_bytes(file_bytes, "xlsx")
+        check_zip_bomb(file_bytes)
+
+        try:
+            wb = load_workbook(io.BytesIO(file_bytes), read_only=True)
+        except Exception:
+            raise HTTPException(
+                status_code=400,
+                detail="The file is not a valid Excel spreadsheet (.xlsx).",
+            )
+
         ws = wb.active
 
         # Build a lookup of all products for validation
