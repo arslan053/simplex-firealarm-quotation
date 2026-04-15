@@ -146,7 +146,30 @@ class QuotationService:
         # 4. Generate reference number
         ref_number = await self._generate_ref_number(tenant_id, user_id, project_id)
 
-        # 5. Build DOCX
+        # 5. Fetch company settings for letterhead/signature
+        settings_row = await self.db.execute(
+            text("SELECT settings FROM tenant_settings WHERE tenant_id = :tid"),
+            {"tid": tenant_id},
+        )
+        tenant_settings = settings_row.scalar()
+        tenant_settings = tenant_settings or {}
+
+        letterhead_bytes = None
+        signature_bytes = None
+
+        if tenant_settings.get("letterhead_key"):
+            try:
+                letterhead_bytes = get_file_bytes(tenant_settings["letterhead_key"])
+            except Exception:
+                pass  # Fall back to code-generated header
+
+        if tenant_settings.get("signature_key"):
+            try:
+                signature_bytes = get_file_bytes(tenant_settings["signature_key"])
+            except Exception:
+                pass  # Fall back to default signature
+
+        # 6. Build DOCX
         qdata = QuotationData(
             client_name=data.client_name,
             client_address=data.client_address,
@@ -163,6 +186,10 @@ class QuotationService:
             device_count=device_count,
             installation_amount=float(installation_amount),
             inclusion_answers=data.inclusion_answers,
+            letterhead_bytes=letterhead_bytes,
+            signature_bytes=signature_bytes,
+            signatory_name=tenant_settings.get("signatory_name"),
+            company_phone=tenant_settings.get("company_phone"),
         )
         docx_bytes = generate_quotation(qdata)
 

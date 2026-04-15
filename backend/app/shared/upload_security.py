@@ -1,6 +1,7 @@
 """Upload security layer — validates and sanitizes uploaded files before storage.
 
-Shared across all upload endpoints (spec PDFs, BOQ Excel, BOQ PDFs, BOQ images).
+Shared across all upload endpoints (spec PDFs, BOQ Excel, BOQ PDFs, BOQ images,
+company settings uploads, and tenant pricing).
 Each function raises HTTPException on failure so callers just call and continue.
 """
 
@@ -8,6 +9,10 @@ import logging
 import re
 import zipfile
 from io import BytesIO
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from docx.document import Document as DocxDocument
 
 import fitz  # PyMuPDF
 from fastapi import HTTPException, status
@@ -31,6 +36,7 @@ _REJECTED_MSG = "This file could not be processed. Please ensure it is a valid, 
 _MAGIC_SIGNATURES: dict[str, list[bytes]] = {
     "pdf":  [b"%PDF-"],
     "xlsx": [b"PK\x03\x04"],               # ZIP archive (OOXML)
+    "docx": [b"PK\x03\x04"],               # ZIP archive (OOXML) — same as XLSX
     "xls":  [b"\xd0\xcf\x11\xe0"],          # OLE2 compound document
     "png":  [b"\x89PNG\r\n\x1a\n"],
     "jpg":  [b"\xff\xd8\xff"],
@@ -246,3 +252,89 @@ def sanitize_filename(filename: str) -> str:
         name = "uploaded_file"
     # Limit length
     return name[:200]
+
+
+# ---------------------------------------------------------------------------
+# Company settings / letterhead security
+# ---------------------------------------------------------------------------
+
+# 7. DOCX package sanitization — strip macros, VBA, and embedded objects
+# ---------------------------------------------------------------------------
+def sanitize_docx_package(file_bytes: bytes) -> bytes:
+    """Rebuild a DOCX ZIP archive without macros, VBA projects, or embedded objects.
+
+    DOCX files are ZIP archives.  A .docm (macro-enabled) renamed to .docx
+    still carries /word/vbaProject.bin inside.  python-docx ignores these
+    entries but preserves them in the output, so they survive into any
+    document generated from this template.
+
+    This function copies every ZIP entry *except* known-dangerous ones,
+    producing clean bytes that can be safely opened with Document().
+    """
+    safe_output = BytesIO()
+
+    with zipfile.ZipFile(BytesIO(file_bytes), "r") as zin:
+        with zipfile.ZipFile(safe_output, "w", zipfile.ZIP_DEFLATED) as zout:
+            for item in zin.infolist():
+                name_lower = item.filename.lower()
+                # Macro / VBA project
+                if name_lower in ("word/vbaproject.bin", "word/vbadata.xml"):
+                    logger.info("Stripped macro file from DOCX: %s", item.filename)
+                    continue
+                # Embedded objects (could be executables)
+                if name_lower.startswith("word/embeddings/"):
+                    logger.info("Stripped embedded object from DOCX: %s", item.filename)
+                    continue
+                # ActiveX controls
+                if name_lower.startswith("word/activex/"):
+                    logger.info("Stripped ActiveX control from DOCX: %s", item.filename)
+                    continue
+                # Everything else is safe (text, images, styles, headers, footers)
+                zout.writestr(item, zin.read(item.filename))
+
+    return safe_output.getvalue()
+
+
+# ---------------------------------------------------------------------------
+# 8. DOCX external relationship stripping — removes tracking pixels / phone-home URLs
+# ---------------------------------------------------------------------------
+def strip_docx_external_relationships(doc: "DocxDocument") -> None:
+    """Remove all external URL relationships from a python-docx Document.
+
+    OOXML documents can reference external URLs (e.g. images hosted on a
+    remote server).  When the document is opened in Word, it fetches those
+    URLs — allowing silent tracking of every person who opens the file.
+
+    This strips external relationships from the main document part and
+    from every header/footer part.
+    """
+
+    def _clean_part_rels(part) -> None:
+        if not hasattr(part, "rels"):
+            return
+        external_keys = [
+            key for key, rel in part.rels.items() if rel.is_external
+        ]
+        for key in external_keys:
+            logger.info(
+                "Stripped external relationship from DOCX: rId=%s", key
+            )
+            del part.rels[key]
+
+    # Main document body
+    _clean_part_rels(doc.part)
+
+    # Headers and footers (where tracking images typically hide)
+    for section in doc.sections:
+        for hf in (
+            section.header,
+            section.first_page_header,
+            section.even_page_header,
+            section.footer,
+            section.first_page_footer,
+            section.even_page_footer,
+        ):
+            # Only process headers/footers that have their own definition.
+            # Accessing .part on a linked header would force-create an empty one.
+            if not hf.is_linked_to_previous:
+                _clean_part_rels(hf.part)

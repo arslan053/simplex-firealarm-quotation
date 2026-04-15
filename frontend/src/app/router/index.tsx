@@ -21,6 +21,7 @@ import { PricingPage } from '@/features/projects/pages/PricingPage';
 import { ClientListPage } from '@/features/clients/pages/ClientListPage';
 import { ClientDetailPage } from '@/features/clients/pages/ClientDetailPage';
 import { PriceListPage } from '@/features/tenant-pricing/pages/PriceListPage';
+import { SettingsPage } from '@/features/settings/pages/SettingsPage';
 
 const router = createBrowserRouter([
   {
@@ -60,6 +61,7 @@ const router = createBrowserRouter([
       { path: 'projects/:projectId/device-selection', element: <DeviceSelectionPage /> },
       { path: 'projects/:projectId/pricing', element: <PricingPage /> },
       { path: 'price-list', element: <PriceListPage /> },
+      { path: 'settings', element: <SettingsPage /> },
       { path: 'profile', element: <ProfilePage /> },
     ],
   },

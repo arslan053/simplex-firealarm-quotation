@@ -1,3 +1,6 @@
+import defusedxml
+defusedxml.defuse_stdlib()  # Patch stdlib XML parsers — blocks XML entity expansion attacks
+
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -23,6 +26,7 @@ from app.modules.panel_selection.router import router as panel_selection_router
 from app.modules.pricing.router import router as pricing_router
 from app.modules.quotation.router import router as quotation_router
 from app.modules.tenant_pricing.router import router as tenant_pricing_router
+from app.modules.company_settings.router import router as company_settings_router
 
 
 @asynccontextmanager
@@ -69,6 +73,7 @@ app.include_router(panel_selection_router)
 app.include_router(pricing_router)
 app.include_router(quotation_router)
 app.include_router(tenant_pricing_router)
+app.include_router(company_settings_router)
 
 
 @app.get("/api/health")

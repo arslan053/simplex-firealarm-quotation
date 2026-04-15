@@ -73,15 +73,37 @@ class QuotationData:
     device_count: int = 0
     installation_amount: float = 0.0
     inclusion_answers: dict[str, bool] | None = None
+    letterhead_bytes: bytes | None = None
+    signature_bytes: bytes | None = None
+    signatory_name: str | None = None
+    company_phone: str | None = None
 
 
 def generate_quotation(data: QuotationData) -> bytes:
     """Generate a quotation DOCX and return it as bytes."""
-    doc = Document()
+    if data.letterhead_bytes:
+        from app.shared.upload_security import (
+            sanitize_docx_package,
+            strip_docx_external_relationships,
+        )
 
-    _setup_page(doc)
-    _setup_header(doc)
-    _setup_footer(doc)
+        # Strip macros/VBA/embedded objects from the ZIP, then open
+        clean_bytes = sanitize_docx_package(data.letterhead_bytes)
+        doc = Document(io.BytesIO(clean_bytes))
+        # Remove any external URL references (tracking pixels etc.)
+        strip_docx_external_relationships(doc)
+        # Clear any body content from the letterhead template
+        for p in doc.paragraphs:
+            p.clear()
+    else:
+        # No letterhead uploaded — build from code with page setup only
+        doc = Document()
+        _setup_page(doc)
+        # Only add header/footer images if they exist on disk
+        if (_IMAGES_DIR / "logo.png").exists():
+            _setup_header(doc)
+        if (_IMAGES_DIR / "footer.png").exists():
+            _setup_footer(doc)
 
     # Build body content — common top section
     _add_client_and_date(doc, data)
@@ -110,7 +132,7 @@ def generate_quotation(data: QuotationData) -> bytes:
     _add_prices_and_terms(doc)
     _add_payment_terms(doc, data)
     _add_time_for_supplies(doc)
-    _add_validity_and_signature(doc)
+    _add_validity_and_signature(doc, data)
     _add_product_table(doc, data)
 
     # Write to bytes
@@ -481,20 +503,25 @@ def _add_time_for_supplies(doc: Document) -> None:
     )
 
 
-def _add_validity_and_signature(doc: Document) -> None:
+def _add_validity_and_signature(doc: Document, data: QuotationData) -> None:
     p = doc.add_paragraph()
     _set_para_spacing(p, before=200, after=100)
     run = p.add_run("Validity \u2013 30 days")
     _style_run(run, bold=True)
-    _add_body_text(doc, "Best regards,")
 
-    # Signature image
-    p = doc.add_paragraph()
-    sig_path = str(_IMAGES_DIR / "signature.png")
-    p.add_run().add_picture(sig_path, width=Cm(3.5))
+    # "Best regards," + name — only if signatory name is provided
+    if data.signatory_name:
+        _add_body_text(doc, "Best regards,")
+        _add_body_text(doc, data.signatory_name)
 
-    _add_body_text(doc, "Mohammed Masood Ali")
-    _add_body_text(doc, "+966 55 267 3835")
+    # Phone — only if provided (independent of name/signature)
+    if data.company_phone:
+        _add_body_text(doc, data.company_phone)
+
+    # Signature image — only if uploaded by admin (at the very end)
+    if data.signature_bytes:
+        p = doc.add_paragraph()
+        p.add_run().add_picture(io.BytesIO(data.signature_bytes), width=Cm(3.5))
 
 
 def _add_product_table(doc: Document, data: QuotationData) -> None:

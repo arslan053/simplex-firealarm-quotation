@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Building2, ContactRound, DollarSign, FolderOpen, LayoutDashboard, LogOut, User, Users, Menu, X } from 'lucide-react';
+import { Building2, ContactRound, DollarSign, FolderOpen, LayoutDashboard, LogOut, Settings, User, Users, Menu, X } from 'lucide-react';
 import { useState } from 'react';
 
 import { useAuth } from '@/features/auth/hooks/useAuth';
@@ -30,6 +30,10 @@ function getNavItems(role: string, isAdminDomain: boolean): NavItem[] {
   if (!isAdminDomain && role === 'admin') {
     items.push({ to: '/users', label: 'Team Members', icon: Users });
     items.push({ to: '/price-list', label: 'Price List', icon: DollarSign });
+  }
+
+  if (!isAdminDomain) {
+    items.push({ to: '/settings', label: 'Settings', icon: Settings });
   }
 
   items.push({ to: '/profile', label: 'Profile', icon: User });
