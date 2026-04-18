@@ -6,6 +6,7 @@ import type {
   LoginResponse,
   MessageResponse,
   ResetPasswordRequest,
+  UpdateProfileRequest,
   User,
 } from '../types';
 
@@ -22,4 +23,7 @@ export const authApi = {
 
   resetPassword: (data: ResetPasswordRequest) =>
     apiClient.post<MessageResponse>('/auth/reset-password', data),
+
+  updateProfile: (data: UpdateProfileRequest) =>
+    apiClient.patch<User>('/auth/profile', data),
 };

@@ -25,6 +25,7 @@ async def seed():
         # Super admin
         super_admin = User(
             email="superadmin@app.com",
+            name="Super Admin",
             password_hash=hash_password(DEFAULT_PASSWORD),
             role="super_admin",
             tenant_id=None,
@@ -43,6 +44,7 @@ async def seed():
         # Acme users
         acme_admin = User(
             email="admin@acme.com",
+            name="Acme Admin",
             password_hash=hash_password(DEFAULT_PASSWORD),
             role="admin",
             tenant_id=acme.id,
@@ -51,6 +53,7 @@ async def seed():
         )
         acme_emp1 = User(
             email="employee1@acme.com",
+            name="Alice Johnson",
             password_hash=hash_password(DEFAULT_PASSWORD),
             role="employee",
             tenant_id=acme.id,
@@ -59,6 +62,7 @@ async def seed():
         )
         acme_emp2 = User(
             email="employee2@acme.com",
+            name="Bob Smith",
             password_hash=hash_password(DEFAULT_PASSWORD),
             role="employee",
             tenant_id=acme.id,
@@ -70,6 +74,7 @@ async def seed():
         # Beta users
         beta_admin = User(
             email="admin@beta.com",
+            name="Beta Admin",
             password_hash=hash_password(DEFAULT_PASSWORD),
             role="admin",
             tenant_id=beta.id,
@@ -78,6 +83,7 @@ async def seed():
         )
         beta_emp1 = User(
             email="employee1@beta.com",
+            name="Charlie Brown",
             password_hash=hash_password(DEFAULT_PASSWORD),
             role="employee",
             tenant_id=beta.id,
@@ -86,6 +92,7 @@ async def seed():
         )
         beta_emp2 = User(
             email="employee2@beta.com",
+            name="Diana Prince",
             password_hash=hash_password(DEFAULT_PASSWORD),
             role="employee",
             tenant_id=beta.id,

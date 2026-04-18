@@ -69,6 +69,7 @@ async def seeded_data(db_session: AsyncSession):
 
     super_admin = User(
         email="superadmin@test.com",
+        name="Super Admin",
         password_hash=hash_password("password123"),
         role="super_admin",
         tenant_id=None,
@@ -76,6 +77,7 @@ async def seeded_data(db_session: AsyncSession):
     )
     acme_admin = User(
         email="admin@acme-test.com",
+        name="Acme Admin",
         password_hash=hash_password("password123"),
         role="admin",
         tenant_id=acme.id,
@@ -83,6 +85,7 @@ async def seeded_data(db_session: AsyncSession):
     )
     acme_employee = User(
         email="employee@acme-test.com",
+        name="Acme Employee",
         password_hash=hash_password("password123"),
         role="employee",
         tenant_id=acme.id,
@@ -90,6 +93,7 @@ async def seeded_data(db_session: AsyncSession):
     )
     beta_admin = User(
         email="admin@beta-test.com",
+        name="Beta Admin",
         password_hash=hash_password("password123"),
         role="admin",
         tenant_id=beta.id,
@@ -97,6 +101,7 @@ async def seeded_data(db_session: AsyncSession):
     )
     beta_employee = User(
         email="employee@beta-test.com",
+        name="Beta Employee",
         password_hash=hash_password("password123"),
         role="employee",
         tenant_id=beta.id,

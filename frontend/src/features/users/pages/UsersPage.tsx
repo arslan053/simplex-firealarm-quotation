@@ -15,6 +15,8 @@ import { Badge } from '@/shared/ui/Badge';
 import { normalizeError } from '@/shared/api/errors';
 
 const inviteSchema = z.object({
+  first_name: z.string().min(1, 'First name is required').regex(/^\S+$/, 'First name must be a single word'),
+  last_name: z.string().min(1, 'Last name is required'),
   email: z.string().email('Valid email is required'),
   role: z.enum(['admin', 'employee']),
 });
@@ -179,6 +181,21 @@ export function UsersPage() {
             </div>
 
             <form onSubmit={handleSubmit(onInvite)} className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <Input
+                  label="First Name"
+                  placeholder="John"
+                  error={errors.first_name?.message}
+                  {...register('first_name')}
+                />
+                <Input
+                  label="Last Name"
+                  placeholder="Doe"
+                  error={errors.last_name?.message}
+                  {...register('last_name')}
+                />
+              </div>
+
               <Input
                 label="Email Address"
                 type="email"
@@ -249,9 +266,17 @@ export function UsersPage() {
                 const isLoading = actionLoading === u.id;
                 return (
                   <tr key={u.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 font-medium text-gray-900">
-                      {u.email}
-                      {isSelf && <span className="ml-2 text-xs text-gray-400">(you)</span>}
+                    <td className="px-6 py-4">
+                      {u.name && (
+                        <div className="font-medium text-gray-900">
+                          {u.name}
+                          {isSelf && <span className="ml-2 text-xs text-gray-400">(you)</span>}
+                        </div>
+                      )}
+                      <div className={u.name ? 'text-sm text-gray-500' : 'font-medium text-gray-900'}>
+                        {u.email}
+                        {!u.name && isSelf && <span className="ml-2 text-xs text-gray-400">(you)</span>}
+                      </div>
                     </td>
                     <td className="px-6 py-4">
                       <Badge variant={u.role === 'admin' ? 'warning' : 'default'}>

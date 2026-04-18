@@ -34,12 +34,14 @@ class UserService:
             )
 
         random_password = secrets.token_urlsafe(12)
+        full_name = f"{data.first_name} {data.last_name}"
         user = await self.user_repo.create(
             email=data.email,
             password_hash=hash_password(random_password),
             role=data.role,
             tenant_id=tenant_id,
             must_change_password=False,
+            name=full_name,
         )
 
         tenant_url = f"{settings.APP_PROTOCOL}://{tenant_slug}.{settings.APP_DOMAIN}"
@@ -77,6 +79,8 @@ class UserService:
             )
 
         user.role = data.role
+        if data.first_name is not None and data.last_name is not None:
+            user.name = f"{data.first_name} {data.last_name}"
         await self.db.flush()
         return user
 

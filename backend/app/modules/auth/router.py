@@ -12,6 +12,7 @@ from app.modules.auth.schemas import (
     ResetPasswordRequest,
     TenantBrief,
     TokenResponse,
+    UpdateProfileRequest,
 )
 from app.modules.auth.service import AuthService
 
@@ -40,6 +41,7 @@ async def login(body: LoginRequest, request: Request, db: AsyncSession = Depends
         user=MeResponse(
             id=user.id,
             email=user.email,
+            name=user.name,
             role=user.role,
             tenant_id=user.tenant_id,
             must_change_password=user.must_change_password,
@@ -65,6 +67,7 @@ async def me(
     return MeResponse(
         id=db_user.id,
         email=db_user.email,
+        name=db_user.name,
         role=db_user.role,
         tenant_id=db_user.tenant_id,
         must_change_password=db_user.must_change_password,
@@ -103,3 +106,32 @@ async def reset_password(body: ResetPasswordRequest, db: AsyncSession = Depends(
     service = AuthService(db)
     await service.reset_password(body.token, body.new_password)
     return MessageResponse(message="Password has been reset successfully")
+
+
+@router.patch("/profile", response_model=MeResponse)
+async def update_profile(
+    body: UpdateProfileRequest,
+    user: UserContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    service = AuthService(db)
+    db_user = await service.get_me(user.id)
+    db_user.name = f"{body.first_name} {body.last_name}"
+    await db.commit()
+    await db.refresh(db_user)
+
+    tenant_brief = None
+    if db_user.tenant:
+        tenant_brief = TenantBrief(
+            id=db_user.tenant.id, slug=db_user.tenant.slug, name=db_user.tenant.name
+        )
+
+    return MeResponse(
+        id=db_user.id,
+        email=db_user.email,
+        name=db_user.name,
+        role=db_user.role,
+        tenant_id=db_user.tenant_id,
+        must_change_password=db_user.must_change_password,
+        tenant=tenant_brief,
+    )

@@ -1,6 +1,7 @@
 export interface User {
   id: string;
   email: string;
+  name: string | null;
   role: 'super_admin' | 'admin' | 'employee';
   tenant_id: string | null;
   must_change_password: boolean;
@@ -9,6 +10,11 @@ export interface User {
     slug: string;
     name: string;
   } | null;
+}
+
+export interface UpdateProfileRequest {
+  first_name: string;
+  last_name: string;
 }
 
 export interface LoginRequest {

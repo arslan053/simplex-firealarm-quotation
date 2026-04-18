@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class LoginRequest(BaseModel):
@@ -17,12 +17,31 @@ class TokenResponse(BaseModel):
 class MeResponse(BaseModel):
     id: UUID
     email: str
+    name: str | None = None
     role: str
     tenant_id: UUID | None = None
     must_change_password: bool = False
     tenant: "TenantBrief | None" = None
 
     model_config = {"from_attributes": True}
+
+
+class UpdateProfileRequest(BaseModel):
+    first_name: str = Field(..., min_length=1, max_length=100)
+    last_name: str = Field(..., min_length=1, max_length=100)
+
+    @field_validator("first_name")
+    @classmethod
+    def first_name_no_spaces(cls, v: str) -> str:
+        v = v.strip()
+        if " " in v:
+            raise ValueError("First name must be a single word (no spaces)")
+        return v
+
+    @field_validator("last_name")
+    @classmethod
+    def last_name_strip(cls, v: str) -> str:
+        return v.strip()
 
 
 class TenantBrief(BaseModel):

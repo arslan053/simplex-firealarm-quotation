@@ -51,9 +51,11 @@ class UserRepository:
         role: str,
         tenant_id: uuid.UUID | None = None,
         must_change_password: bool = False,
+        name: str | None = None,
     ) -> User:
         user = User(
             email=email,
+            name=name,
             password_hash=password_hash,
             role=role,
             tenant_id=tenant_id,
