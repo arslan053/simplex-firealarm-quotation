@@ -164,14 +164,26 @@ class SpecAnalysisService:
         # ── Store spec blocks (only when spec exists) ──
         spec_blocks: list = []
         if has_spec:
-            await self.spec_block_repo.delete_by_document(spec_doc.id, tenant_id)
-            spec_markdown = parsed.get("spec_markdown", "")
-            spec_blocks = parse_spec_markdown(
-                spec_markdown, spec_doc.id, tenant_id,
-                start_page=1, end_page=1,
-            )
-            if spec_blocks:
-                await self.spec_block_repo.bulk_create(spec_blocks)
+            # Re-verify the document still exists — the user may have uploaded
+            # a new spec while the GPT call was running, which deletes the old one.
+            current_doc = await self.spec_doc_repo.get_existing_spec(tenant_id, project_id)
+            if current_doc is None or current_doc.id != spec_doc.id:
+                logger.warning(
+                    "Spec document changed during analysis for project %s. "
+                    "Using current document.",
+                    project_id,
+                )
+                spec_doc = current_doc
+
+            if spec_doc is not None:
+                await self.spec_block_repo.delete_by_document(spec_doc.id, tenant_id)
+                spec_markdown = parsed.get("spec_markdown", "")
+                spec_blocks = parse_spec_markdown(
+                    spec_markdown, spec_doc.id, tenant_id,
+                    start_page=1, end_page=1,
+                )
+                if spec_blocks:
+                    await self.spec_block_repo.bulk_create(spec_blocks)
 
         # ── Store analysis answers ──
         question_map = {q.question_no: q for q in questions}

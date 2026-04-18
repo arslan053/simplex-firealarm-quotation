@@ -61,8 +61,11 @@ async def _run_background(
         logger.error("Spec analysis job %s failed: %s", job_id, exc.detail)
     except Exception as exc:
         entry.status = "failed"
-        entry.message = f"Unexpected error: {str(exc)}"
-        logger.exception("Spec analysis job %s crashed", job_id)
+        entry.message = (
+            "Something went wrong while analyzing the specification. "
+            "Please try again or re-upload the spec file."
+        )
+        logger.exception("Spec analysis job %s crashed: %s", job_id, exc)
     finally:
         _project_jobs.pop(str(project_id), None)
 
