@@ -8,7 +8,6 @@ import { LoginPage } from '@/features/auth/pages/LoginPage';
 import { ForgotPasswordPage } from '@/features/auth/pages/ForgotPasswordPage';
 import { ResetPasswordPage } from '@/features/auth/pages/ResetPasswordPage';
 import { ChangePasswordPage } from '@/features/auth/pages/ChangePasswordPage';
-import { ProfilePage } from '@/features/auth/pages/ProfilePage';
 import { DashboardPage } from '@/features/dashboard/pages/DashboardPage';
 import { CompaniesPage } from '@/features/admin/pages/CompaniesPage';
 import { UsersPage } from '@/features/users/pages/UsersPage';
@@ -20,8 +19,10 @@ import { ProjectResultsPage } from '@/features/projects/pages/ProjectResultsPage
 import { PricingPage } from '@/features/projects/pages/PricingPage';
 import { ClientListPage } from '@/features/clients/pages/ClientListPage';
 import { ClientDetailPage } from '@/features/clients/pages/ClientDetailPage';
+import { SettingsLayout } from '@/features/settings/pages/SettingsLayout';
+import { GeneralSettingsPage } from '@/features/settings/pages/GeneralSettingsPage';
+import { AccountSettingsPage } from '@/features/settings/pages/AccountSettingsPage';
 import { PriceListPage } from '@/features/tenant-pricing/pages/PriceListPage';
-import { SettingsPage } from '@/features/settings/pages/SettingsPage';
 
 const router = createBrowserRouter([
   {
@@ -51,7 +52,7 @@ const router = createBrowserRouter([
     children: [
       { index: true, element: <DashboardPage /> },
       { path: 'companies', element: <CompaniesPage /> },
-{ path: 'users', element: <UsersPage /> },
+      { path: 'users', element: <UsersPage /> },
       { path: 'clients', element: <ClientListPage /> },
       { path: 'clients/:clientId', element: <ClientDetailPage /> },
       { path: 'projects', element: <ProjectListPage /> },
@@ -60,9 +61,15 @@ const router = createBrowserRouter([
       { path: 'projects/:projectId/results', element: <ProjectResultsPage /> },
       { path: 'projects/:projectId/device-selection', element: <DeviceSelectionPage /> },
       { path: 'projects/:projectId/pricing', element: <PricingPage /> },
-      { path: 'price-list', element: <PriceListPage /> },
-      { path: 'settings', element: <SettingsPage /> },
-      { path: 'profile', element: <ProfilePage /> },
+      {
+        path: 'settings',
+        element: <SettingsLayout />,
+        children: [
+          { path: 'general', element: <GeneralSettingsPage /> },
+          { path: 'pricing', element: <PriceListPage /> },
+          { path: 'account', element: <AccountSettingsPage /> },
+        ],
+      },
     ],
   },
   {

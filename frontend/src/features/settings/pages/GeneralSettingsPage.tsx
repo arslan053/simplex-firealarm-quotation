@@ -2,78 +2,21 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   FileText,
   Image,
-  Settings2,
   Trash2,
   Upload,
-  User as UserIcon,
-  CheckCircle,
+  Paperclip,
   RefreshCw,
   X,
 } from 'lucide-react';
 
 import { settingsApi } from '../api/settings.api';
 import type { CompanySettings } from '../types';
-import { useAuth } from '@/features/auth/hooks/useAuth';
 import { Card } from '@/shared/ui/Card';
 import { Button } from '@/shared/ui/Button';
 import { Input } from '@/shared/ui/Input';
-import { Badge } from '@/shared/ui/Badge';
 import { normalizeError } from '@/shared/api/errors';
 
-type Tab = 'company' | 'profile';
-
-export function SettingsPage() {
-  const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
-
-  const [activeTab, setActiveTab] = useState<Tab>(isAdmin ? 'company' : 'profile');
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
-        <p className="text-sm text-gray-500">Manage your account and company settings</p>
-      </div>
-
-      {/* Tabs */}
-      <div className="flex gap-1 border-b">
-        {isAdmin && (
-          <button
-            onClick={() => setActiveTab('company')}
-            className={`px-4 py-2 text-sm font-medium transition-colors ${
-              activeTab === 'company'
-                ? 'border-b-2 border-indigo-600 text-indigo-600'
-                : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            <Settings2 className="mr-2 inline h-4 w-4" />
-            Company Settings
-          </button>
-        )}
-        <button
-          onClick={() => setActiveTab('profile')}
-          className={`px-4 py-2 text-sm font-medium transition-colors ${
-            activeTab === 'profile'
-              ? 'border-b-2 border-indigo-600 text-indigo-600'
-              : 'text-gray-500 hover:text-gray-700'
-          }`}
-        >
-          <UserIcon className="mr-2 inline h-4 w-4" />
-          Profile
-        </button>
-      </div>
-
-      {activeTab === 'company' && isAdmin && <CompanySettingsTab />}
-      {activeTab === 'profile' && <ProfileTab />}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Company Settings Tab
-// ---------------------------------------------------------------------------
-
-function CompanySettingsTab() {
+export function GeneralSettingsPage() {
   const [settings, setSettings] = useState<CompanySettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState<'letterhead' | 'signature' | null>(null);
@@ -200,8 +143,8 @@ function CompanySettingsTab() {
     setSaving(true);
     try {
       const { data } = await settingsApi.updateTextSettings({
-        signatory_name: signatoryName || null,
-        company_phone: companyPhone || null,
+        signatory_name: signatoryName || undefined,
+        company_phone: companyPhone || undefined,
       });
       setSettings(data);
       setSuccessMsg('Settings saved successfully.');
@@ -255,10 +198,10 @@ function CompanySettingsTab() {
 
           {/* Already uploaded — show current file with Replace / Remove */}
           {settings?.letterhead_uploaded && !stagedLetterhead && (
-            <div className="flex items-center gap-3 rounded-lg border border-green-200 bg-green-50 px-4 py-3">
-              <CheckCircle className="h-5 w-5 text-green-600" />
-              <span className="flex-1 text-sm font-medium text-green-800">
-                {settings.letterhead_filename}
+            <div className="flex items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+              <Paperclip className="h-5 w-5 text-gray-500" />
+              <span className="flex-1 text-sm font-medium text-gray-700">
+                {settings.letterhead_filename ?? ''}
               </span>
               <Button
                 variant="outline"
@@ -342,9 +285,9 @@ function CompanySettingsTab() {
 
           {/* Already uploaded — show current file with Replace / Remove */}
           {settings?.signature_uploaded && !stagedSignature && (
-            <div className="flex items-center gap-3 rounded-lg border border-green-200 bg-green-50 px-4 py-3">
-              <CheckCircle className="h-5 w-5 text-green-600" />
-              <span className="flex-1 text-sm font-medium text-green-800">
+            <div className="flex items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+              <Paperclip className="h-5 w-5 text-gray-500" />
+              <span className="flex-1 text-sm font-medium text-gray-700">
                 {settings.signature_filename}
               </span>
               <Button
@@ -426,43 +369,5 @@ function CompanySettingsTab() {
         </div>
       </Card>
     </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Profile Tab
-// ---------------------------------------------------------------------------
-
-const roleBadgeVariant = {
-  super_admin: 'danger' as const,
-  admin: 'warning' as const,
-  employee: 'default' as const,
-};
-
-const roleLabel = {
-  super_admin: 'Super Admin',
-  admin: 'Admin',
-  employee: 'Employee',
-};
-
-function ProfileTab() {
-  const { user } = useAuth();
-
-  if (!user) return null;
-
-  return (
-    <Card>
-      <div className="flex items-center gap-4">
-        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-indigo-100">
-          <UserIcon className="h-7 w-7 text-indigo-600" />
-        </div>
-        <div>
-          <p className="text-lg font-semibold text-gray-900">{user.email}</p>
-          <Badge variant={roleBadgeVariant[user.role]}>
-            {roleLabel[user.role]}
-          </Badge>
-        </div>
-      </div>
-    </Card>
   );
 }

@@ -7,22 +7,22 @@ import type {
 
 export const tenantPricingApi = {
   getList: (params?: { search?: string; category?: string }) =>
-    apiClient.get<PriceListResponse>('/price-list', { params }),
+    apiClient.get<PriceListResponse>('/settings/pricing', { params }),
 
   updatePrices: (items: PriceUpdateItem[]) =>
-    apiClient.put<{ updated: number }>('/price-list', { items }),
+    apiClient.put<{ updated: number }>('/settings/pricing', { items }),
 
   downloadTemplate: () =>
-    apiClient.get<Blob>('/price-list/template', { responseType: 'blob' }),
+    apiClient.get<Blob>('/settings/pricing/template', { responseType: 'blob' }),
 
   uploadTemplate: (file: File) => {
     const form = new FormData();
     form.append('file', file);
-    return apiClient.post<UploadResponse>('/price-list/upload', form, {
+    return apiClient.post<UploadResponse>('/settings/pricing/upload', form, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
   },
 
   getCategories: () =>
-    apiClient.get<{ categories: string[] }>('/price-list/categories'),
+    apiClient.get<{ categories: string[] }>('/settings/pricing/categories'),
 };

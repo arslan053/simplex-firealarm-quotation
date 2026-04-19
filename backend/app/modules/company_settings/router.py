@@ -18,8 +18,8 @@ from .schemas import CompanySettingsResponse, TextSettingsRequest
 from .service import CompanySettingsService
 
 router = APIRouter(
-    prefix="/api/company-settings",
-    tags=["company-settings"],
+    prefix="/api/settings/general",
+    tags=["settings-general"],
     dependencies=[
         Depends(require_tenant_domain),
         Depends(require_tenant_match),

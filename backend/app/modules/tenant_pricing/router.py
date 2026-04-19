@@ -19,8 +19,8 @@ from .schemas import PriceListResponse, PriceUpdateRequest, PriceUpdateResponse,
 from .service import TenantPricingService
 
 router = APIRouter(
-    prefix="/api/price-list",
-    tags=["tenant-pricing"],
+    prefix="/api/settings/pricing",
+    tags=["settings-pricing"],
     dependencies=[
         Depends(require_tenant_domain),
         Depends(require_tenant_match),

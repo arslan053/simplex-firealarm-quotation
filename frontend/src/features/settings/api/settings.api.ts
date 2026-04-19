@@ -3,30 +3,30 @@ import type { CompanySettings } from '../types';
 
 export const settingsApi = {
   getCompanySettings: () =>
-    apiClient.get<CompanySettings>('/company-settings'),
+    apiClient.get<CompanySettings>('/settings/general'),
 
   updateTextSettings: (data: { signatory_name?: string; company_phone?: string }) =>
-    apiClient.put<CompanySettings>('/company-settings', data),
+    apiClient.put<CompanySettings>('/settings/general', data),
 
   uploadLetterhead: (file: File) => {
     const form = new FormData();
     form.append('file', file);
-    return apiClient.post<CompanySettings>('/company-settings/letterhead', form, {
+    return apiClient.post<CompanySettings>('/settings/general/letterhead', form, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
   },
 
   deleteLetterhead: () =>
-    apiClient.delete<CompanySettings>('/company-settings/letterhead'),
+    apiClient.delete<CompanySettings>('/settings/general/letterhead'),
 
   uploadSignature: (file: File) => {
     const form = new FormData();
     form.append('file', file);
-    return apiClient.post<CompanySettings>('/company-settings/signature', form, {
+    return apiClient.post<CompanySettings>('/settings/general/signature', form, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
   },
 
   deleteSignature: () =>
-    apiClient.delete<CompanySettings>('/company-settings/signature'),
+    apiClient.delete<CompanySettings>('/settings/general/signature'),
 };
