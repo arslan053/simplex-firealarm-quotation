@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CreditCard, Trash2, RefreshCw } from 'lucide-react';
+import { CreditCard, RefreshCw } from 'lucide-react';
 
 import { Card } from '@/shared/ui/Card';
 import { Button } from '@/shared/ui/Button';
@@ -8,41 +8,15 @@ import type { SavedCard } from '../types';
 
 interface Props {
   onChangeCard?: () => void;
-  renewalPending?: boolean;
 }
 
-export function SavedCardsSection({ onChangeCard, renewalPending }: Props) {
+export function SavedCardsSection({ onChangeCard }: Props) {
   const [cards, setCards] = useState<SavedCard[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [revokingId, setRevokingId] = useState<string | null>(null);
-
-  const fetch = async () => {
-    setIsLoading(true);
-    try {
-      const { data } = await billingApi.listCards();
-      setCards(data);
-    } catch {
-      // silently fail
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   useEffect(() => {
-    fetch();
+    billingApi.listCards().then(({ data }) => setCards(data)).catch(() => {}).finally(() => setIsLoading(false));
   }, []);
-
-  const handleRevoke = async (id: string) => {
-    setRevokingId(id);
-    try {
-      await billingApi.revokeCard(id);
-      setCards((prev) => prev.filter((c) => c.id !== id));
-    } catch {
-      // silently fail
-    } finally {
-      setRevokingId(null);
-    }
-  };
 
   return (
     <div className="space-y-4">
@@ -55,12 +29,6 @@ export function SavedCardsSection({ onChangeCard, renewalPending }: Props) {
           </Button>
         )}
       </div>
-
-      {renewalPending && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-          Renewal failed — updating your payment method will immediately retry charging.
-        </div>
-      )}
 
       {isLoading ? (
         <div className="py-4 text-center text-sm text-gray-500">Loading...</div>
@@ -75,28 +43,18 @@ export function SavedCardsSection({ onChangeCard, renewalPending }: Props) {
         <div className="space-y-2">
           {cards.map((card) => (
             <Card key={card.id}>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <CreditCard className="h-5 w-5 text-gray-400" />
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">
-                      {card.card_brand ? card.card_brand.toUpperCase() : 'Card'} **** {card.last_four || '????'}
+              <div className="flex items-center gap-3">
+                <CreditCard className="h-5 w-5 text-gray-400" />
+                <div>
+                  <p className="text-sm font-medium text-gray-900">
+                    {card.card_brand ? card.card_brand.toUpperCase() : 'Card'} **** {card.last_four || '????'}
+                  </p>
+                  {card.expires_month && card.expires_year && (
+                    <p className="text-xs text-gray-500">
+                      Expires {String(card.expires_month).padStart(2, '0')}/{card.expires_year}
                     </p>
-                    {card.expires_month && card.expires_year && (
-                      <p className="text-xs text-gray-500">
-                        Expires {String(card.expires_month).padStart(2, '0')}/{card.expires_year}
-                      </p>
-                    )}
-                  </div>
+                  )}
                 </div>
-                <Button
-                  size="sm"
-                  variant="danger"
-                  isLoading={revokingId === card.id}
-                  onClick={() => handleRevoke(card.id)}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
               </div>
             </Card>
           ))}

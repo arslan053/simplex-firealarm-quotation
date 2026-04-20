@@ -116,13 +116,6 @@ async def _process_webhook(body: dict) -> None:
 
                 # Activate plan
                 if payment.plan == "monthly":
-                    # Carry forward auto_renew from old subscription if this is an auto-renewal
-                    auto_renew = False
-                    if payment.payment_type == "auto_renewal":
-                        old_sub = await repo.get_latest_subscription(tid)
-                        if old_sub:
-                            auto_renew = old_sub.auto_renew
-
                     await repo.create_subscription(
                         tenant_id=tid,
                         amount_paid=PLAN_CONFIG["monthly"]["amount"],
@@ -130,10 +123,11 @@ async def _process_webhook(body: dict) -> None:
                         starts_at=now,
                         expires_at=now + timedelta(days=30),
                         moyasar_payment_id=payment_id,
-                        auto_renew=auto_renew,
+                        auto_renew=True,
                     )
                 elif payment.plan == "per_project":
-                    await repo.increment_credits(tid, 1)
+                    qty = (payment.metadata_json or {}).get("quantity", 1)
+                    await repo.increment_credits(tid, qty)
 
                 # Save card token if present
                 source = data.get("source") or {}

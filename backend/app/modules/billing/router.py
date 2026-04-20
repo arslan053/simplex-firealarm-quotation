@@ -14,7 +14,6 @@ from app.dependencies.auth import (
     require_tenant_match,
 )
 from app.modules.billing.schemas import (
-    AutoRenewToggleRequest,
     BillingAlertResponse,
     InitiatePaymentRequest,
     InitiatePaymentResponse,
@@ -74,7 +73,7 @@ async def initiate_payment(
 ):
     tenant_id = uuid.UUID(request.state.tenant["id"])
     svc = BillingService(db)
-    return await svc.initiate_payment(tenant_id, uuid.UUID(user.id), body.plan)
+    return await svc.initiate_payment(tenant_id, uuid.UUID(user.id), body.plan, body.quantity)
 
 
 # ── Payment Verification (admin only) ───────────────────────────────
@@ -145,45 +144,7 @@ async def get_subscription(
     return await svc.get_subscription(tenant_id)
 
 
-@router.patch(
-    "/subscription/auto-renew",
-    dependencies=[
-        Depends(require_tenant_domain),
-        Depends(require_tenant_match),
-        require_role("admin"),
-    ],
-)
-async def toggle_auto_renew(
-    body: AutoRenewToggleRequest,
-    request: Request,
-    user: UserContext = Depends(get_current_user),
-    db: AsyncSession = Depends(get_tenant_db),
-):
-    tenant_id = uuid.UUID(request.state.tenant["id"])
-    svc = BillingService(db)
-    await svc.toggle_auto_renew(tenant_id, body.enabled)
-    return {"message": f"Auto-renewal {'enabled' if body.enabled else 'disabled'}."}
-
-
 # ── Saved Cards (admin only) ────────────────────────────────────────
-
-@router.get(
-    "/cards",
-    dependencies=[
-        Depends(require_tenant_domain),
-        Depends(require_tenant_match),
-        require_role("admin"),
-    ],
-)
-async def list_cards(
-    request: Request,
-    user: UserContext = Depends(get_current_user),
-    db: AsyncSession = Depends(get_tenant_db),
-):
-    tenant_id = uuid.UUID(request.state.tenant["id"])
-    svc = BillingService(db)
-    return await svc.list_cards(tenant_id)
-
 
 @router.post(
     "/cards/update",
@@ -204,24 +165,23 @@ async def update_card(
     return await svc.update_card(tenant_id, uuid.UUID(user.id), body.moyasar_payment_id)
 
 
-@router.delete(
-    "/cards/{token_id}",
+@router.get(
+    "/cards",
     dependencies=[
         Depends(require_tenant_domain),
         Depends(require_tenant_match),
         require_role("admin"),
     ],
 )
-async def revoke_card(
-    token_id: str,
+async def list_cards(
     request: Request,
     user: UserContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_tenant_db),
 ):
     tenant_id = uuid.UUID(request.state.tenant["id"])
     svc = BillingService(db)
-    await svc.revoke_card(tenant_id, uuid.UUID(token_id))
-    return {"message": "Card revoked."}
+    return await svc.list_cards(tenant_id)
+
 
 
 # ── Billing Alerts (admin only) ─────────────────────────────────────

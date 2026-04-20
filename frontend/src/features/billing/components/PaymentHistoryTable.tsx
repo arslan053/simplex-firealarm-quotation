@@ -55,10 +55,9 @@ export function PaymentHistoryTable() {
           onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
           className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
         >
-          <option value="">All statuses</option>
+          <option value="">All</option>
           <option value="paid">Paid</option>
           <option value="failed">Failed</option>
-          <option value="pending">Pending</option>
         </select>
       </div>
 

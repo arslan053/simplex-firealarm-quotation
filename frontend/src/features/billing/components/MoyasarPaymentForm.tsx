@@ -100,7 +100,7 @@ export function MoyasarPaymentForm({
       callback_url: callbackUrl,
       metadata,
       methods: ['creditcard', 'stcpay'],
-      creditcard: {
+      credit_card: {
         save_card: true,
       },
       on_completed: (payment: unknown) => {

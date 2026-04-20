@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 PLAN_CONFIG = {
     "monthly": {"amount": 25000, "currency": "USD", "description": "Monthly Subscription - 25 Projects"},
     "per_project": {"amount": 2500, "currency": "USD", "description": "Per-Project Purchase - 1 Project"},
+    "card_update": {"amount": 100, "currency": "USD", "description": "Card Verification - $1 (refunded automatically)"},
 }
 
 MONTHLY_AMOUNT = 25000
@@ -38,12 +39,12 @@ class BillingService:
     # ── Payment Initiation ───────────────────────────────────────────
 
     async def initiate_payment(
-        self, tenant_id: uuid.UUID, user_id: uuid.UUID, plan: str
+        self, tenant_id: uuid.UUID, user_id: uuid.UUID, plan: str, quantity: int = 1
     ) -> InitiatePaymentResponse:
         if plan not in PLAN_CONFIG:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid plan: {plan}. Must be 'monthly' or 'per_project'.",
+                detail=f"Invalid plan: {plan}. Must be 'monthly', 'per_project', or 'card_update'.",
             )
 
         # ━━━ GUARD 4: No active subscription allowed for monthly ━━━
@@ -55,24 +56,41 @@ class BillingService:
                     detail="An active subscription already exists. Wait until it expires or purchase per-project credits.",
                 )
 
+        # Validate quantity for per_project
+        if plan == "per_project":
+            if not isinstance(quantity, int) or quantity < 1:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Quantity must be a positive integer.",
+                )
+
         cfg = PLAN_CONFIG[plan]
+        # For per_project, multiply amount by quantity
+        amount = cfg["amount"] * quantity if plan == "per_project" else cfg["amount"]
+        description = (
+            f"Per-Project Purchase - {quantity} Project{'s' if quantity > 1 else ''}"
+            if plan == "per_project"
+            else cfg["description"]
+        )
+
         given_id = uuid.uuid4()
 
         payment = await self.repo.create_payment_history(
             tenant_id=tenant_id,
             user_id=user_id,
             plan=plan,
-            amount=cfg["amount"],
+            amount=amount,
             currency=cfg["currency"],
             given_id=given_id,
+            metadata_json={"quantity": quantity} if plan == "per_project" else None,
         )
 
         return InitiatePaymentResponse(
             internal_id=str(payment.id),
-            amount=cfg["amount"],
+            amount=amount,
             currency=cfg["currency"],
             given_id=str(given_id),
-            description=cfg["description"],
+            description=description,
         )
 
     # ── Payment Verification ─────────────────────────────────────────
@@ -169,12 +187,41 @@ class BillingService:
                 quota = await get_quota_status(tenant_id, self.db)
                 return self._build_verify_result(True, "Subscription already active.", tenant_id, quota)
 
-        # Activate subscription or increment credits
-        await self._activate_plan(tenant_id, payment.plan, moyasar_payment_id)
-
         # Save card token if present
         source = moyasar_data.get("source") or {}
         token = source.get("token")
+
+        # Handle card_update: save new card, refund the $1, replace old cards
+        if payment.plan == "card_update":
+            if token:
+                # Revoke all old tokens first
+                old_tokens = await self.repo.list_tokens(tenant_id)
+                for old in old_tokens:
+                    try:
+                        await self.moyasar.delete_token(old.moyasar_token)
+                    except Exception:
+                        logger.warning("Failed to delete old token on Moyasar: %s", old.moyasar_token)
+                    await self.repo.revoke_token(old.id)
+                # Save new token
+                await self._save_card_token(tenant_id, user_id, token, source)
+
+            # Refund the $1 verification charge
+            try:
+                await self.moyasar.refund_payment(moyasar_payment_id)
+                logger.info("Card update: refunded $1 for %s", moyasar_payment_id)
+            except Exception:
+                logger.exception("Card update: failed to refund $1 for %s", moyasar_payment_id)
+
+            quota = await get_quota_status(tenant_id, self.db)
+            return self._build_verify_result(
+                True, "Payment method updated successfully. The $1 verification charge will be refunded.", tenant_id, quota
+            )
+
+        # Activate subscription or increment credits
+        quantity = (payment.metadata_json or {}).get("quantity", 1)
+        await self._activate_plan(tenant_id, payment.plan, moyasar_payment_id, quantity)
+
+        # Save card token for non-card-update payments
         if token:
             await self._save_card_token(tenant_id, user_id, token, source)
 
@@ -182,7 +229,7 @@ class BillingService:
         return self._build_verify_result(True, "Payment verified successfully.", tenant_id, quota)
 
     async def _activate_plan(
-        self, tenant_id: uuid.UUID, plan: str, moyasar_payment_id: str | None
+        self, tenant_id: uuid.UUID, plan: str, moyasar_payment_id: str | None, quantity: int = 1
     ) -> None:
         now = datetime.now(timezone.utc)
         if plan == "monthly":
@@ -199,9 +246,10 @@ class BillingService:
                 starts_at=now,
                 expires_at=now + timedelta(days=30),
                 moyasar_payment_id=moyasar_payment_id,
+                auto_renew=True,
             )
         elif plan == "per_project":
-            await self.repo.increment_credits(tenant_id, 1)
+            await self.repo.increment_credits(tenant_id, quantity)
 
     async def _save_card_token(
         self,
@@ -269,25 +317,16 @@ class BillingService:
             "renewal_attempts": sub.renewal_attempts,
         }
 
-    async def toggle_auto_renew(self, tenant_id: uuid.UUID, enabled: bool) -> None:
-        sub = await self.repo.get_active_subscription(tenant_id)
-        if not sub:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="No active subscription to toggle auto-renewal.",
-            )
-        await self.repo.toggle_auto_renew(sub.id, enabled)
-
     # ── Card Update (Replace) ────────────────────────────────────────
 
     async def update_card(
         self, tenant_id: uuid.UUID, user_id: uuid.UUID, moyasar_payment_id: str
     ) -> dict:
         """
-        Verify a Moyasar payment that was used to save a new card.
-        Replaces old card. If renewal is pending, immediately retries.
+        Extract token from a completed Moyasar payment, replace all old cards.
+        No automatic retry or subscription charge — just saves the new card.
+        The cron job or manual "Renew Now" will use it.
         """
-        # Fetch payment from Moyasar to get the new token
         try:
             moyasar_data = await self.moyasar.fetch_payment(moyasar_payment_id)
         except Exception as exc:
@@ -317,90 +356,7 @@ class BillingService:
         # Save new token
         await self._save_card_token(tenant_id, user_id, new_token, source)
 
-        result: dict = {"message": "Payment method updated successfully.", "retry_result": None}
-
-        # If renewal is pending, immediately retry with new card
-        latest_sub = await self.repo.get_latest_subscription(tenant_id)
-        if latest_sub and latest_sub.renewal_attempts > 0 and latest_sub.auto_renew:
-            now = datetime.now(timezone.utc)
-            # Check Guard 1 first
-            active = await self.repo.get_active_subscription(tenant_id)
-            if active:
-                result["retry_result"] = "Subscription already active — no retry needed."
-                await self.repo.reset_retry_state(latest_sub.id)
-            else:
-                retry_result = await self._retry_with_new_card(tenant_id, user_id, latest_sub, new_token, now)
-                result["retry_result"] = retry_result
-
-        return result
-
-    async def _retry_with_new_card(
-        self, tenant_id: uuid.UUID, user_id: uuid.UUID, sub, token: str, now: datetime
-    ) -> str:
-        """Immediately retry charging with a new card after card update."""
-        given_id = uuid.uuid4()
-        payment = await self.repo.create_payment_history(
-            tenant_id=tenant_id,
-            user_id=user_id,
-            plan="monthly",
-            amount=MONTHLY_AMOUNT,
-            currency="USD",
-            given_id=given_id,
-            payment_type="auto_renewal",
-        )
-
-        callback_url = f"{settings.FRONTEND_URL}/billing/verify"
-        try:
-            result = await self.moyasar.charge_token(
-                token=token,
-                amount=MONTHLY_AMOUNT,
-                currency="USD",
-                description="Subscription renewal — new payment method",
-                callback_url=callback_url,
-                metadata={
-                    "internal_id": str(payment.id),
-                    "tenant_id": str(tenant_id),
-                    "plan": "monthly",
-                    "type": "card_update_retry",
-                },
-            )
-        except Exception as exc:
-            logger.error("Card update retry charge failed: %s", exc)
-            await self.repo.update_payment_status(payment.id, "failed")
-            return f"Charge failed: {exc}. Your new card is saved and will be used for the next retry."
-
-        moyasar_payment_id = result.get("id")
-
-        if result.get("status") == "paid":
-            # Guard 2: double check
-            active = await self.repo.get_active_subscription(tenant_id)
-            if active:
-                try:
-                    await self.moyasar.refund_payment(moyasar_payment_id)
-                except Exception:
-                    logger.exception("Guard 2 refund failed in card update retry")
-                await self.repo.update_payment_status(payment.id, "failed", moyasar_payment_id=moyasar_payment_id)
-                return "Subscription already active — charge refunded."
-
-            await self.repo.update_payment_status(
-                payment.id, "paid", moyasar_payment_id=moyasar_payment_id, paid_at=now
-            )
-            await self.repo.expire_subscription(sub.id)
-            await self.repo.create_subscription(
-                tenant_id=tenant_id,
-                amount_paid=MONTHLY_AMOUNT,
-                projects_limit=MONTHLY_PROJECTS_LIMIT,
-                starts_at=now,
-                expires_at=now + timedelta(days=30),
-                moyasar_payment_id=moyasar_payment_id,
-                auto_renew=sub.auto_renew,
-            )
-            return "Subscription renewed successfully with your new card!"
-        else:
-            source = result.get("source") or {}
-            decline_msg = source.get("message") or "unknown"
-            await self.repo.update_payment_status(payment.id, "failed", moyasar_payment_id=moyasar_payment_id)
-            return f"Charge failed: {decline_msg}. Your new card is saved for the next automatic retry."
+        return {"message": "Payment method updated successfully."}
 
     # ── Saved Cards ──────────────────────────────────────────────────
 
@@ -418,18 +374,6 @@ class BillingService:
             for t in tokens
         ]
 
-    async def revoke_card(self, tenant_id: uuid.UUID, token_id: uuid.UUID) -> None:
-        token = await self.repo.get_token_by_id(token_id)
-        if not token or token.tenant_id != tenant_id:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Card not found.",
-            )
-        try:
-            await self.moyasar.delete_token(token.moyasar_token)
-        except Exception:
-            logger.warning("Failed to delete token on Moyasar: %s", token.moyasar_token)
-        await self.repo.revoke_token(token_id)
 
     # ── Payment History ──────────────────────────────────────────────
 

@@ -172,7 +172,7 @@ async def _renew_subscription(db, repo: BillingRepository, sub) -> None:
             starts_at=now,
             expires_at=now + timedelta(days=30),
             moyasar_payment_id=moyasar_payment_id,
-            auto_renew=sub.auto_renew,
+            auto_renew=True,
         )
         logger.info("Auto-renewed subscription for tenant %s", tenant_id)
     else:

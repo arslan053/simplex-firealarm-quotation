@@ -1,36 +1,18 @@
-import { Calendar, RefreshCw } from 'lucide-react';
-import { useState } from 'react';
+import { Calendar } from 'lucide-react';
 
 import { Card } from '@/shared/ui/Card';
 import { Badge } from '@/shared/ui/Badge';
 import { Button } from '@/shared/ui/Button';
-import { billingApi } from '../api/billing.api';
 import type { Subscription } from '../types';
 
 interface Props {
   subscription: Subscription | null;
   onBuySubscription: () => void;
-  onRefresh: () => void;
 }
 
-export function SubscriptionCard({ subscription, onBuySubscription, onRefresh }: Props) {
-  const [toggling, setToggling] = useState(false);
-
+export function SubscriptionCard({ subscription, onBuySubscription }: Props) {
   const isActive = subscription?.status === 'active' && new Date(subscription.expires_at) > new Date();
   const isExpired = subscription ? (!isActive) : false;
-
-  const handleToggleAutoRenew = async () => {
-    if (!subscription) return;
-    setToggling(true);
-    try {
-      await billingApi.toggleAutoRenew(!subscription.auto_renew);
-      onRefresh();
-    } catch {
-      // silently fail
-    } finally {
-      setToggling(false);
-    }
-  };
 
   if (!subscription) {
     return (
@@ -69,7 +51,7 @@ export function SubscriptionCard({ subscription, onBuySubscription, onRefresh }:
               )}
             </div>
           </div>
-          {isExpired && <Button size="sm" onClick={onBuySubscription}>Renew</Button>}
+          {isExpired && <Button size="sm" onClick={onBuySubscription}>Renew Now</Button>}
         </div>
 
         {/* Progress bar */}
@@ -85,29 +67,6 @@ export function SubscriptionCard({ subscription, onBuySubscription, onRefresh }:
             />
           </div>
         </div>
-
-        {/* Auto-renew toggle */}
-        {isActive && (
-          <div className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2">
-            <div className="flex items-center gap-2 text-sm text-gray-700">
-              <RefreshCw className="h-4 w-4" />
-              Auto-renewal
-            </div>
-            <button
-              onClick={handleToggleAutoRenew}
-              disabled={toggling}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                subscription.auto_renew ? 'bg-indigo-600' : 'bg-gray-300'
-              }`}
-            >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                  subscription.auto_renew ? 'translate-x-6' : 'translate-x-1'
-                }`}
-              />
-            </button>
-          </div>
-        )}
       </div>
     </Card>
   );

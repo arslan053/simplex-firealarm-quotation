@@ -15,9 +15,7 @@ export function CreditBalanceCard({ balance, onBuyCredits }: Props) {
         <div className="flex items-start justify-between">
           <div>
             <h3 className="text-lg font-semibold text-gray-900">Project Credits</h3>
-            <p className="mt-1 text-sm text-gray-500">
-              Per-project purchases (never expire)
-            </p>
+            <p className="mt-1 text-sm text-gray-500">$25 per credit (never expire)</p>
           </div>
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-50">
             <Coins className="h-5 w-5 text-indigo-600" />
@@ -32,7 +30,7 @@ export function CreditBalanceCard({ balance, onBuyCredits }: Props) {
         </div>
 
         <Button variant="outline" onClick={onBuyCredits}>
-          Buy Project Credit
+          Buy Project Credits
         </Button>
       </div>
     </Card>

@@ -12,8 +12,8 @@ import type {
 export const billingApi = {
   getQuota: () => apiClient.get<QuotaStatus>('/billing/quota'),
 
-  initiatePayment: (plan: 'monthly' | 'per_project') =>
-    apiClient.post<InitiatePaymentResponse>('/billing/payments/initiate', { plan }),
+  initiatePayment: (plan: 'monthly' | 'per_project' | 'card_update', quantity?: number) =>
+    apiClient.post<InitiatePaymentResponse>('/billing/payments/initiate', { plan, quantity: quantity ?? 1 }),
 
   verifyPayment: (moyasar_payment_id: string) =>
     apiClient.post<VerifyPaymentResponse>('/billing/payments/verify', { moyasar_payment_id }),
@@ -30,15 +30,10 @@ export const billingApi = {
 
   getSubscription: () => apiClient.get<Subscription | null>('/billing/subscription'),
 
-  toggleAutoRenew: (enabled: boolean) =>
-    apiClient.patch('/billing/subscription/auto-renew', { enabled }),
-
   listCards: () => apiClient.get<SavedCard[]>('/billing/cards'),
 
-  revokeCard: (tokenId: string) => apiClient.delete(`/billing/cards/${tokenId}`),
-
   updateCard: (moyasar_payment_id: string) =>
-    apiClient.post<{ message: string; retry_result: string | null }>('/billing/cards/update', { moyasar_payment_id }),
+    apiClient.post<{ message: string }>('/billing/cards/update', { moyasar_payment_id }),
 
   getAlerts: () => apiClient.get<BillingAlertResponse>('/billing/alerts'),
 };

@@ -9,7 +9,8 @@ from pydantic import BaseModel
 # ── Requests ─────────────────────────────────────────────────────────
 
 class InitiatePaymentRequest(BaseModel):
-    plan: str  # "monthly" | "per_project"
+    plan: str  # "monthly" | "per_project" | "card_update"
+    quantity: int = 1  # number of project credits (only for per_project)
 
 
 class VerifyPaymentRequest(BaseModel):

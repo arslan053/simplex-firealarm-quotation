@@ -252,6 +252,10 @@ class BillingRepository:
         if status_filter:
             query = query.where(PaymentHistory.status == status_filter)
             count_query = count_query.where(PaymentHistory.status == status_filter)
+        else:
+            # Exclude pending by default — only show paid and failed
+            query = query.where(PaymentHistory.status != "pending")
+            count_query = count_query.where(PaymentHistory.status != "pending")
         if plan_filter:
             query = query.where(PaymentHistory.plan == plan_filter)
             count_query = count_query.where(PaymentHistory.plan == plan_filter)
