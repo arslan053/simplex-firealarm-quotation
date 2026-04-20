@@ -88,10 +88,6 @@ services:
     container_name: ragm-frontend
     ports:
       - "3000:3000"
-    env_file:
-      - ./frontend/.env.development
-    environment:
-      VITE_API_URL: http://localhost:3001
     depends_on:
       - backend
     volumes:
@@ -99,6 +95,9 @@ services:
       - ./frontend/index.html:/app/index.html
       - ./frontend/vite.config.ts:/app/vite.config.ts
       - ./frontend/tailwind.config.ts:/app/tailwind.config.ts
+      - ./frontend/.env.development:/app/.env.development
+    environment:
+      VITE_API_URL: http://localhost:3001
     command: npx vite --host 0.0.0.0
 
 volumes:
