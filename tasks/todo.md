@@ -99,3 +99,45 @@
 - [ ] 16. Verify panels are skipped (selectable_id null)
 - [ ] 17. Verify temp product codes display correctly
 - [ ] 18. Verify pagination works
+
+---
+
+# Payment Integration (Moyasar + Subscription & Per-Project Billing)
+
+## Backend
+- [x] 1. Migration `039_create_billing_tables.py` — 4 tables (subscriptions, project_credits, payment_history, payment_tokens) with RLS
+- [x] 2. Models `backend/app/modules/billing/models.py` — Subscription, ProjectCredit, PaymentHistory, PaymentToken
+- [x] 3. Schemas `backend/app/modules/billing/schemas.py` — request/response Pydantic schemas
+- [x] 4. Repository `backend/app/modules/billing/repository.py` — DB queries with atomic operations (FOR UPDATE)
+- [x] 5. Shared quota utility `backend/app/shared/quota.py` — get_quota_status + consume_quota
+- [x] 6. Moyasar client `backend/app/modules/billing/moyasar_client.py` — httpx async client
+- [x] 7. Service `backend/app/modules/billing/service.py` — payment initiation, verification, subscription mgmt
+- [x] 8. Router `backend/app/modules/billing/router.py` — all billing endpoints (admin-gated)
+- [x] 9. Webhook router `backend/app/modules/billing/webhook_router.py` — Moyasar webhook (no auth, idempotent)
+- [x] 10. Renewal service `backend/app/modules/billing/renewal_service.py` — auto-renewal background loop
+- [x] 11. Config/env — MOYASAR_SECRET_KEY, MOYASAR_WEBHOOK_SECRET in config.py + env files
+- [x] 12. Register routers in `main.py` + renewal loop in lifespan
+- [x] 13. Project creation gate — quota check in `projects/service.py`
+
+## Frontend
+- [x] 14. Types `frontend/src/features/billing/types/index.ts`
+- [x] 15. API `frontend/src/features/billing/api/billing.api.ts`
+- [x] 16. Hook `frontend/src/features/billing/hooks/useQuota.ts`
+- [x] 17. SubscriptionCard, CreditBalanceCard, PlanSelector, MoyasarPaymentForm, PaymentHistoryTable, SavedCardsSection, BillingAlert components
+- [x] 18. BillingPage + PaymentVerifyPage
+- [x] 19. Routes added to router/index.tsx
+- [x] 20. Nav item added to AppLayout.tsx (admin-only, CreditCard icon)
+- [x] 21. BillingAlert rendered in AppLayout
+- [x] 22. Quota gate on CreateProjectPage (shows warning + link to billing)
+- [x] 23. Moyasar JS/CSS added to index.html
+- [x] 24. Frontend env: VITE_MOYASAR_PUBLISHABLE_KEY + env.ts config
+
+## Verification
+- [x] 25. All backend imports pass
+- [x] 26. main.py loads with 92 routes
+- [x] 27. Alembic head at 039
+- [x] 28. Migration runs successfully — 4 tables with RLS + policies
+- [x] 29. TypeScript compiles clean (only pre-existing BoqItemsTable error)
+- [ ] 30. Full payment flow with Moyasar test keys (needs real API keys)
+- [ ] 31. Start backend and test endpoints manually
+- [ ] 32. Start frontend and verify billing page renders

@@ -1,11 +1,12 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Building2, ContactRound, FolderOpen, LayoutDashboard, LogOut, Settings, User, Users, Menu, X } from 'lucide-react';
+import { Building2, ContactRound, CreditCard, FolderOpen, LayoutDashboard, LogOut, Settings, User, Users, Menu, X } from 'lucide-react';
 import { useState } from 'react';
 
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import { useTenant } from '@/features/tenants/hooks/useTenant';
 import { cn } from '@/shared/utils/cn';
 import { Badge } from '@/shared/ui/Badge';
+import { BillingAlert } from '@/features/billing/components/BillingAlert';
 
 interface NavItem {
   to: string;
@@ -33,6 +34,10 @@ function getNavItems(role: string, isAdminDomain: boolean): NavItem[] {
 
   if (!isAdminDomain) {
     items.push({ to: '/settings', label: 'Settings', icon: Settings });
+  }
+
+  if (!isAdminDomain && role === 'admin') {
+    items.push({ to: '/billing', label: 'Billing', icon: CreditCard });
   }
 
   return items;
@@ -148,6 +153,7 @@ export function AppLayout() {
 
         {/* Page content */}
         <main className="flex-1 p-4 lg:p-6">
+          <BillingAlert />
           <Outlet />
         </main>
       </div>

@@ -23,6 +23,8 @@ import { SettingsLayout } from '@/features/settings/pages/SettingsLayout';
 import { GeneralSettingsPage } from '@/features/settings/pages/GeneralSettingsPage';
 import { AccountSettingsPage } from '@/features/settings/pages/AccountSettingsPage';
 import { PriceListPage } from '@/features/tenant-pricing/pages/PriceListPage';
+import { BillingPage } from '@/features/billing/pages/BillingPage';
+import { PaymentVerifyPage } from '@/features/billing/pages/PaymentVerifyPage';
 
 const router = createBrowserRouter([
   {
@@ -61,6 +63,8 @@ const router = createBrowserRouter([
       { path: 'projects/:projectId/results', element: <ProjectResultsPage /> },
       { path: 'projects/:projectId/device-selection', element: <DeviceSelectionPage /> },
       { path: 'projects/:projectId/pricing', element: <PricingPage /> },
+      { path: 'billing', element: <BillingPage /> },
+      { path: 'billing/verify', element: <PaymentVerifyPage /> },
       {
         path: 'settings',
         element: <SettingsLayout />,
