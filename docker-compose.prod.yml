@@ -16,12 +16,10 @@ services:
       - ./backend/alembic.ini:/app/alembic.ini
       - ./backend/seeds.py:/app/seeds.py
       - ./backend/seeds:/app/seeds
+      - ./backend/entrypoint.sh:/app/entrypoint.sh
+      - ./backend/crontab:/app/crontab
       - .:/ragm-root
-    command: >
-      sh -c "
-        alembic upgrade head &&
-        uvicorn app.main:app --host 0.0.0.0 --port 3001
-      "
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "3001"]
 
   frontend:
     build:

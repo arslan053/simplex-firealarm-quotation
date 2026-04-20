@@ -7,6 +7,7 @@ export interface Subscription {
   expires_at: string;
   auto_renew: boolean;
   amount_paid: number;
+  renewal_attempts?: number;
 }
 
 export interface QuotaStatus {

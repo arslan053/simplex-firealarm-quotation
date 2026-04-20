@@ -24,6 +24,9 @@ class Subscription(Base, UUIDPrimaryKey, TimestampMixin):
     starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     moyasar_payment_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    renewal_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    next_retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    renewal_failed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
         Index("ix_subscriptions_tenant", "tenant_id"),

@@ -29,15 +29,11 @@ from app.modules.tenant_pricing.router import router as tenant_pricing_router
 from app.modules.company_settings.router import router as company_settings_router
 from app.modules.billing.router import router as billing_router
 from app.modules.billing.webhook_router import webhook_router as billing_webhook_router
-from app.modules.billing.renewal_service import renewal_loop
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    import asyncio
-    renewal_task = asyncio.create_task(renewal_loop())
     yield
-    renewal_task.cancel()
     await engine.dispose()
 
 

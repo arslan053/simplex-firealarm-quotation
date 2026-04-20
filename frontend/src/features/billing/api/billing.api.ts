@@ -37,5 +37,8 @@ export const billingApi = {
 
   revokeCard: (tokenId: string) => apiClient.delete(`/billing/cards/${tokenId}`),
 
+  updateCard: (moyasar_payment_id: string) =>
+    apiClient.post<{ message: string; retry_result: string | null }>('/billing/cards/update', { moyasar_payment_id }),
+
   getAlerts: () => apiClient.get<BillingAlertResponse>('/billing/alerts'),
 };

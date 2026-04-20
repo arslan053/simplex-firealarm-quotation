@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -14,15 +13,29 @@ logger = logging.getLogger(__name__)
 
 MONTHLY_AMOUNT = 25000
 MONTHLY_PROJECTS_LIMIT = 25
-RENEWAL_INTERVAL_SECONDS = 3600  # Check every hour
+
+# Retry schedule: offsets from renewal_failed_at
+RETRY_OFFSETS = [
+    timedelta(hours=0),   # Attempt 1: immediately
+    timedelta(hours=6),   # Attempt 2: 6h after first failure
+    timedelta(hours=24),  # Attempt 3: 24h after first failure
+    timedelta(hours=72),  # Attempt 4: 72h after first failure
+]
+
+
+def _compute_next_retry(renewal_failed_at: datetime, attempts: int) -> datetime | None:
+    """Calculate next_retry_at based on retry schedule."""
+    if attempts >= len(RETRY_OFFSETS):
+        return None  # No more retries
+    return renewal_failed_at + RETRY_OFFSETS[attempts]
 
 
 async def process_renewals() -> int:
     """
-    Find expired subscriptions with auto_renew enabled and attempt to charge
-    the tenant's saved card. Returns the number of renewals attempted.
+    Find expired subscriptions with auto_renew and attempt to charge.
+    Implements retry schedule and all 5 safety guards.
+    Returns the number of renewals attempted.
     """
-    # Use a plain session (no RLS context) — app_bypass_policy allows this
     async with async_session_factory() as db:
         try:
             repo = BillingRepository(db)
@@ -31,7 +44,7 @@ async def process_renewals() -> int:
             if not expired_subs:
                 return 0
 
-            logger.info("Found %d expired subscriptions to renew", len(expired_subs))
+            logger.info("Found %d expired subscriptions to process", len(expired_subs))
             count = 0
 
             for sub in expired_subs:
@@ -40,7 +53,7 @@ async def process_renewals() -> int:
                     count += 1
                 except Exception:
                     logger.exception(
-                        "Failed to renew subscription %s for tenant %s",
+                        "Failed to process subscription %s for tenant %s",
                         sub.id, sub.tenant_id,
                     )
 
@@ -54,15 +67,35 @@ async def process_renewals() -> int:
 
 
 async def _renew_subscription(db, repo: BillingRepository, sub) -> None:
-    """Attempt to renew a single subscription."""
+    """Attempt to renew a single subscription with safety guards."""
     tenant_id = sub.tenant_id
     now = datetime.now(timezone.utc)
+
+    # ━━━ GUARD 1: Check if tenant already has an active subscription ━━━
+    active = await repo.get_active_subscription(tenant_id)
+    if active:
+        logger.info(
+            "Guard 1: tenant %s already has active subscription %s — skipping, resetting retry",
+            tenant_id, active.id,
+        )
+        await repo.reset_retry_state(sub.id)
+        return
 
     # Find active token
     token = await repo.get_active_token(tenant_id)
     if not token:
         logger.warning("No saved token for tenant %s — expiring subscription", tenant_id)
-        await repo.expire_subscription(sub.id)
+        if sub.renewal_attempts >= 3:
+            await repo.expire_subscription(sub.id)
+        else:
+            failed_at = sub.renewal_failed_at or now
+            attempts = sub.renewal_attempts + 1
+            await repo.update_retry_state(
+                sub.id,
+                renewal_attempts=attempts,
+                next_retry_at=_compute_next_retry(failed_at, attempts),
+                renewal_failed_at=failed_at,
+            )
         return
 
     # Create pending payment record
@@ -97,12 +130,33 @@ async def _renew_subscription(db, repo: BillingRepository, sub) -> None:
         )
     except Exception as exc:
         logger.error("Moyasar charge failed for tenant %s: %s", tenant_id, exc)
+        decline_reason = str(exc)
         await repo.update_payment_status(payment.id, "failed")
-        await repo.expire_subscription(sub.id)
+        # Store decline reason
+        await _store_decline_reason(repo, payment.id, decline_reason, "")
+        await _handle_retry_failure(repo, sub, now)
         return
 
+    moyasar_payment_id = result.get("id")
+
     if result.get("status") == "paid":
-        moyasar_payment_id = result.get("id")
+        # ━━━ GUARD 2: Double-check no active sub was created between check and now ━━━
+        active_again = await repo.get_active_subscription(tenant_id)
+        if active_again:
+            logger.warning(
+                "Guard 2: active subscription appeared for tenant %s after charge — refunding %s",
+                tenant_id, moyasar_payment_id,
+            )
+            try:
+                await moyasar.refund_payment(moyasar_payment_id)
+            except Exception:
+                logger.exception("Failed to auto-refund %s", moyasar_payment_id)
+            await repo.update_payment_status(
+                payment.id, "failed", moyasar_payment_id=moyasar_payment_id
+            )
+            await repo.reset_retry_state(sub.id)
+            return
+
         await repo.update_payment_status(
             payment.id, "paid",
             moyasar_payment_id=moyasar_payment_id,
@@ -118,28 +172,51 @@ async def _renew_subscription(db, repo: BillingRepository, sub) -> None:
             starts_at=now,
             expires_at=now + timedelta(days=30),
             moyasar_payment_id=moyasar_payment_id,
-            auto_renew=True,
+            auto_renew=sub.auto_renew,
         )
         logger.info("Auto-renewed subscription for tenant %s", tenant_id)
     else:
+        # Payment failed
+        source = result.get("source") or {}
+        decline_reason = source.get("message") or result.get("message") or "unknown"
+        response_code = source.get("response_code") or ""
+
         await repo.update_payment_status(
-            payment.id, "failed",
-            moyasar_payment_id=result.get("id"),
+            payment.id, "failed", moyasar_payment_id=moyasar_payment_id
         )
-        await repo.expire_subscription(sub.id)
+        await _store_decline_reason(repo, payment.id, decline_reason, response_code)
+        await _handle_retry_failure(repo, sub, now)
+
         logger.warning(
-            "Auto-renewal failed for tenant %s: status=%s",
-            tenant_id, result.get("status"),
+            "Auto-renewal failed for tenant %s: reason=%s, code=%s",
+            tenant_id, decline_reason, response_code,
         )
 
 
-async def renewal_loop() -> None:
-    """Background loop that periodically checks for subscriptions to renew."""
-    while True:
-        try:
-            count = await process_renewals()
-            if count:
-                logger.info("Renewal cycle completed: %d renewed", count)
-        except Exception:
-            logger.exception("Unhandled error in renewal loop")
-        await asyncio.sleep(RENEWAL_INTERVAL_SECONDS)
+async def _handle_retry_failure(repo: BillingRepository, sub, now: datetime) -> None:
+    """Update retry state after a failed attempt."""
+    failed_at = sub.renewal_failed_at or now
+    attempts = sub.renewal_attempts + 1
+
+    if attempts >= 4:
+        # All retries exhausted — expire
+        await repo.expire_subscription(sub.id)
+        await repo.update_retry_state(sub.id, renewal_attempts=attempts, next_retry_at=None, renewal_failed_at=failed_at)
+        logger.info("All retry attempts exhausted for subscription %s — expired", sub.id)
+    else:
+        next_retry = _compute_next_retry(failed_at, attempts)
+        await repo.update_retry_state(sub.id, renewal_attempts=attempts, next_retry_at=next_retry, renewal_failed_at=failed_at)
+        logger.info("Retry %d/4 for subscription %s — next at %s", attempts, sub.id, next_retry)
+
+
+async def _store_decline_reason(repo: BillingRepository, payment_id: uuid.UUID, reason: str, code: str) -> None:
+    """Store Moyasar decline reason in payment_history.metadata_json."""
+    from sqlalchemy import update as sa_update
+    from app.modules.billing.models import PaymentHistory
+    await repo.db.execute(
+        sa_update(PaymentHistory)
+        .where(PaymentHistory.id == payment_id)
+        .values(metadata_json={"decline_reason": reason, "decline_code": code})
+    )
+
+

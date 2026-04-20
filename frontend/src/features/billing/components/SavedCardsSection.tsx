@@ -1,12 +1,17 @@
 import { useEffect, useState } from 'react';
-import { CreditCard, Trash2 } from 'lucide-react';
+import { CreditCard, Trash2, RefreshCw } from 'lucide-react';
 
 import { Card } from '@/shared/ui/Card';
 import { Button } from '@/shared/ui/Button';
 import { billingApi } from '../api/billing.api';
 import type { SavedCard } from '../types';
 
-export function SavedCardsSection() {
+interface Props {
+  onChangeCard?: () => void;
+  renewalPending?: boolean;
+}
+
+export function SavedCardsSection({ onChangeCard, renewalPending }: Props) {
   const [cards, setCards] = useState<SavedCard[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [revokingId, setRevokingId] = useState<string | null>(null);
@@ -41,7 +46,21 @@ export function SavedCardsSection() {
 
   return (
     <div className="space-y-4">
-      <h3 className="text-lg font-semibold text-gray-900">Saved Cards</h3>
+      <div className="flex items-center justify-between">
+        <h3 className="text-lg font-semibold text-gray-900">Saved Cards</h3>
+        {onChangeCard && (
+          <Button size="sm" variant="outline" onClick={onChangeCard}>
+            <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+            Change Payment Method
+          </Button>
+        )}
+      </div>
+
+      {renewalPending && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          Renewal failed — updating your payment method will immediately retry charging.
+        </div>
+      )}
 
       {isLoading ? (
         <div className="py-4 text-center text-sm text-gray-500">Loading...</div>

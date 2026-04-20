@@ -65,6 +65,21 @@ class MoyasarClient:
             resp.raise_for_status()
             return resp.json()
 
+    async def refund_payment(self, payment_id: str, amount: int | None = None) -> dict:
+        """POST /v1/payments/{id}/refund — full or partial refund."""
+        async with httpx.AsyncClient() as client:
+            body: dict = {}
+            if amount is not None:
+                body["amount"] = amount
+            resp = await client.post(
+                f"{self.base_url}/payments/{payment_id}/refund",
+                auth=self._auth(),
+                json=body if body else None,
+                timeout=30.0,
+            )
+            resp.raise_for_status()
+            return resp.json()
+
     async def delete_token(self, token_id: str) -> None:
         """DELETE /v1/tokens/{id} — revoke saved card on Moyasar side."""
         async with httpx.AsyncClient() as client:

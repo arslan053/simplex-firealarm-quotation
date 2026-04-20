@@ -14,21 +14,27 @@ import { PaymentHistoryTable } from '../components/PaymentHistoryTable';
 import { SavedCardsSection } from '../components/SavedCardsSection';
 import type { InitiatePaymentResponse } from '../types';
 
+type FlowMode = 'idle' | 'select_plan' | 'payment' | 'update_card';
+
 export function BillingPage() {
   const { user } = useAuth();
   const { subscription, creditsBalance, refetch } = useQuota();
 
+  const [flowMode, setFlowMode] = useState<FlowMode>('idle');
   const [selectedPlan, setSelectedPlan] = useState<'monthly' | 'per_project' | null>(null);
   const [paymentData, setPaymentData] = useState<InitiatePaymentResponse | null>(null);
   const [initiating, setInitiating] = useState(false);
   const [error, setError] = useState('');
+  const [cardUpdateResult, setCardUpdateResult] = useState<string | null>(null);
 
   const hasActiveSub = subscription?.status === 'active' && new Date(subscription.expires_at) > new Date();
+  const renewalPending = (subscription?.renewal_attempts ?? 0) > 0 && subscription?.auto_renew;
 
   const handleSelectPlan = (plan: 'monthly' | 'per_project') => {
     setSelectedPlan(plan);
     setPaymentData(null);
     setError('');
+    setFlowMode('select_plan');
   };
 
   const handleInitiatePayment = async () => {
@@ -38,6 +44,7 @@ export function BillingPage() {
     try {
       const { data } = await billingApi.initiatePayment(selectedPlan);
       setPaymentData(data);
+      setFlowMode('payment');
     } catch (err: any) {
       setError(err?.response?.data?.detail || 'Failed to initiate payment');
     } finally {
@@ -45,10 +52,22 @@ export function BillingPage() {
     }
   };
 
-  const handleCancelPayment = () => {
+  const handleCancel = () => {
+    setFlowMode('idle');
     setSelectedPlan(null);
     setPaymentData(null);
     setError('');
+    setCardUpdateResult(null);
+  };
+
+  const handleChangeCard = () => {
+    // For card update, we initiate a small payment with save_card
+    // The Moyasar form will handle the tokenization
+    setFlowMode('update_card');
+    setError('');
+    setCardUpdateResult(null);
+    // Initiate a per_project payment to get a real token via save_card
+    // The card gets saved during the verify step
   };
 
   const callbackUrl = `${window.location.origin}/billing/verify`;
@@ -79,19 +98,19 @@ export function BillingPage() {
         />
       </div>
 
-      {/* Plan Selection & Payment */}
-      {selectedPlan && !paymentData && (
+      {/* Plan Selection */}
+      {flowMode === 'select_plan' && !paymentData && (
         <Card>
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold text-gray-900">Choose a Plan</h3>
-              <Button size="sm" variant="outline" onClick={handleCancelPayment}>
+              <Button size="sm" variant="outline" onClick={handleCancel}>
                 Cancel
               </Button>
             </div>
             <PlanSelector
               selected={selectedPlan}
-              onSelect={handleSelectPlan}
+              onSelect={(plan) => { setSelectedPlan(plan); }}
               monthlyDisabled={hasActiveSub}
             />
             {error && <p className="text-sm text-red-600">{error}</p>}
@@ -103,14 +122,14 @@ export function BillingPage() {
       )}
 
       {/* Moyasar Payment Form */}
-      {paymentData && (
+      {flowMode === 'payment' && paymentData && (
         <Card>
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold text-gray-900">
                 Complete Payment — {paymentData.description}
               </h3>
-              <Button size="sm" variant="outline" onClick={handleCancelPayment}>
+              <Button size="sm" variant="outline" onClick={handleCancel}>
                 Cancel
               </Button>
             </div>
@@ -129,9 +148,67 @@ export function BillingPage() {
         </Card>
       )}
 
+      {/* Card Update Form */}
+      {flowMode === 'update_card' && (
+        <Card>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-gray-900">Update Payment Method</h3>
+              <Button size="sm" variant="outline" onClick={handleCancel}>
+                Cancel
+              </Button>
+            </div>
+            <p className="text-sm text-gray-600">
+              Enter your new card details below. A small verification charge may be applied and refunded.
+              {renewalPending && ' Your subscription will be automatically renewed with the new card.'}
+            </p>
+            {/* Use a per_project payment as the vehicle to save a new card */}
+            {!paymentData ? (
+              <Button
+                onClick={async () => {
+                  setInitiating(true);
+                  try {
+                    const { data } = await billingApi.initiatePayment('per_project');
+                    setPaymentData(data);
+                  } catch (err: any) {
+                    setError(err?.response?.data?.detail || 'Failed to start card update');
+                  } finally {
+                    setInitiating(false);
+                  }
+                }}
+                isLoading={initiating}
+              >
+                Continue to Card Entry
+              </Button>
+            ) : (
+              <MoyasarPaymentForm
+                amount={paymentData.amount}
+                currency={paymentData.currency}
+                description="Card update — 1 project credit"
+                callbackUrl={callbackUrl}
+                metadata={{
+                  internal_id: paymentData.internal_id,
+                  tenant_id: user?.tenant_id || '',
+                  plan: 'per_project',
+                }}
+              />
+            )}
+            {error && <p className="text-sm text-red-600">{error}</p>}
+            {cardUpdateResult && (
+              <div className="rounded-lg bg-green-50 px-4 py-3 text-sm text-green-800">
+                {cardUpdateResult}
+              </div>
+            )}
+          </div>
+        </Card>
+      )}
+
       {/* Saved Cards */}
       <Card>
-        <SavedCardsSection />
+        <SavedCardsSection
+          onChangeCard={handleChangeCard}
+          renewalPending={renewalPending}
+        />
       </Card>
 
       {/* Payment History */}

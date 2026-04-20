@@ -185,6 +185,25 @@ async def list_cards(
     return await svc.list_cards(tenant_id)
 
 
+@router.post(
+    "/cards/update",
+    dependencies=[
+        Depends(require_tenant_domain),
+        Depends(require_tenant_match),
+        require_role("admin"),
+    ],
+)
+async def update_card(
+    body: VerifyPaymentRequest,
+    request: Request,
+    user: UserContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
+):
+    tenant_id = uuid.UUID(request.state.tenant["id"])
+    svc = BillingService(db)
+    return await svc.update_card(tenant_id, uuid.UUID(user.id), body.moyasar_payment_id)
+
+
 @router.delete(
     "/cards/{token_id}",
     dependencies=[
@@ -225,3 +244,17 @@ async def get_alerts(
     svc = BillingService(db)
     alerts = await svc.get_alerts(tenant_id)
     return {"alerts": alerts}
+
+
+# ── Manual Renewal Trigger (super_admin only) ────────────────────────
+
+@router.post(
+    "/admin/run-renewal",
+    dependencies=[
+        require_role("super_admin"),
+    ],
+)
+async def run_renewal_manually():
+    from app.modules.billing.renewal_service import process_renewals
+    count = await process_renewals()
+    return {"message": f"Processed {count} renewal(s)."}

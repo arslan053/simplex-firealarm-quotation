@@ -93,16 +93,50 @@ class BillingRepository:
         )
 
     async def get_expired_auto_renew_subscriptions(self) -> list[Subscription]:
-        """Find subscriptions that are active but expired, with auto_renew enabled."""
+        """Find subscriptions eligible for auto-renewal with retry logic."""
         now = datetime.now(timezone.utc)
         result = await self.db.execute(
             select(Subscription).where(
                 Subscription.status == "active",
                 Subscription.expires_at <= now,
                 Subscription.auto_renew.is_(True),
+                Subscription.renewal_attempts < 4,
+                # Either never tried, or next_retry_at has passed
+                (Subscription.next_retry_at.is_(None)) | (Subscription.next_retry_at <= now),
             )
         )
         return list(result.scalars().all())
+
+    async def update_retry_state(
+        self,
+        subscription_id: uuid.UUID,
+        renewal_attempts: int,
+        next_retry_at: datetime | None,
+        renewal_failed_at: datetime | None,
+    ) -> None:
+        await self.db.execute(
+            update(Subscription)
+            .where(Subscription.id == subscription_id)
+            .values(
+                renewal_attempts=renewal_attempts,
+                next_retry_at=next_retry_at,
+                renewal_failed_at=renewal_failed_at,
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
+
+    async def reset_retry_state(self, subscription_id: uuid.UUID) -> None:
+        """Reset retry state — called after manual renewal or Guard 1 skip."""
+        await self.db.execute(
+            update(Subscription)
+            .where(Subscription.id == subscription_id)
+            .values(
+                renewal_attempts=0,
+                next_retry_at=None,
+                renewal_failed_at=None,
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
 
     # ── Project Credits ──────────────────────────────────────────────
 
