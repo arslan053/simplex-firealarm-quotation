@@ -45,12 +45,24 @@ async def get_quota(
     svc = BillingService(db)
     sub_data = await svc.get_subscription(tenant_id)
 
+    # Monthly available only for first-time or cancelled (no auto_renew, no saved card)
+    from app.modules.billing.repository import BillingRepository
+    repo = BillingRepository(db)
+    active_sub = await repo.get_active_subscription(tenant_id)
+    latest_sub = await repo.get_latest_subscription(tenant_id)
+    has_card = await repo.get_active_token(tenant_id)
+    can_buy_monthly = (
+        active_sub is None
+        and (latest_sub is None or (not latest_sub.auto_renew and not has_card))
+    )
+
     return {
         "can_create": quota.can_create,
         "source": quota.source,
         "message": quota.message,
         "subscription": sub_data,
         "credits_balance": quota.credits_balance,
+        "can_buy_monthly": can_buy_monthly,
     }
 
 
@@ -142,6 +154,46 @@ async def get_subscription(
     tenant_id = uuid.UUID(request.state.tenant["id"])
     svc = BillingService(db)
     return await svc.get_subscription(tenant_id)
+
+
+# ── Cancel Subscription (admin only) ────────────────────────────────
+
+@router.post(
+    "/subscription/cancel",
+    dependencies=[
+        Depends(require_tenant_domain),
+        Depends(require_tenant_match),
+        require_role("admin"),
+    ],
+)
+async def cancel_subscription(
+    request: Request,
+    user: UserContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
+):
+    tenant_id = uuid.UUID(request.state.tenant["id"])
+    svc = BillingService(db)
+    return await svc.cancel_subscription(tenant_id)
+
+
+# ── Manual Renewal (admin only) ─────────────────────────────────────
+
+@router.post(
+    "/subscription/renew",
+    dependencies=[
+        Depends(require_tenant_domain),
+        Depends(require_tenant_match),
+        require_role("admin"),
+    ],
+)
+async def renew_now(
+    request: Request,
+    user: UserContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
+):
+    tenant_id = uuid.UUID(request.state.tenant["id"])
+    svc = BillingService(db)
+    return await svc.renew_now(tenant_id, uuid.UUID(user.id))
 
 
 # ── Saved Cards (admin only) ────────────────────────────────────────

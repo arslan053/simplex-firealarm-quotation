@@ -116,7 +116,7 @@ async def _process_webhook(body: dict) -> None:
 
                 # Activate plan
                 if payment.plan == "monthly":
-                    await repo.create_subscription(
+                    new_sub = await repo.create_subscription(
                         tenant_id=tid,
                         amount_paid=PLAN_CONFIG["monthly"]["amount"],
                         projects_limit=PLAN_CONFIG["monthly"]["projects_limit"],
@@ -125,14 +125,15 @@ async def _process_webhook(body: dict) -> None:
                         moyasar_payment_id=payment_id,
                         auto_renew=True,
                     )
+                    await repo.expire_all_old_for_tenant(tid, new_sub.id)
                 elif payment.plan == "per_project":
                     qty = (payment.metadata_json or {}).get("quantity", 1)
                     await repo.increment_credits(tid, qty)
 
-                # Save card token if present
+                # Save card token only for monthly subscription payments
                 source = data.get("source") or {}
                 token = source.get("token")
-                if token:
+                if token and payment.plan == "monthly":
                     card_brand = source.get("company") or source.get("type")
                     last_four = source.get("number", "")[-4:] if source.get("number") else None
                     await repo.save_token(

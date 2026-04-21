@@ -30,6 +30,10 @@ export const billingApi = {
 
   getSubscription: () => apiClient.get<Subscription | null>('/billing/subscription'),
 
+  renewNow: () => apiClient.post<{ success: boolean; message: string }>('/billing/subscription/renew'),
+
+  cancelSubscription: () => apiClient.post<{ message: string }>('/billing/subscription/cancel'),
+
   listCards: () => apiClient.get<SavedCard[]>('/billing/cards'),
 
   updateCard: (moyasar_payment_id: string) =>

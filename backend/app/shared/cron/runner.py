@@ -46,6 +46,11 @@ async def _run_job(job_name: str) -> None:
     start = time.monotonic()
 
     try:
+        # Ensure all models are registered so SQLAlchemy can resolve FK references
+        import app.modules.tenants.models  # noqa: F401
+        import app.modules.users.models  # noqa: F401
+        import app.modules.billing.models  # noqa: F401
+
         func = _import_func(job.func)
         result = await func()
         elapsed = time.monotonic() - start

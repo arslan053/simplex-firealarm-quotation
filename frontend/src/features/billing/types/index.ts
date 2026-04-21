@@ -16,6 +16,7 @@ export interface QuotaStatus {
   message: string;
   subscription: Subscription | null;
   credits_balance: number;
+  can_buy_monthly: boolean;
 }
 
 export interface InitiatePaymentResponse {

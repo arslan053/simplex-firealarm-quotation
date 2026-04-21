@@ -52,7 +52,7 @@ export function PlanSelector({ selected, onSelect, monthlyDisabled, quantity, on
         </ul>
         {monthlyDisabled && (
           <p className="mt-2 text-xs text-amber-600">
-            Active subscription exists — wait until it expires
+            Not available — cancel your subscription first to subscribe manually
           </p>
         )}
       </button>

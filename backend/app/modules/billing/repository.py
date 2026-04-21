@@ -92,6 +92,39 @@ class BillingRepository:
             .values(auto_renew=enabled, updated_at=datetime.now(timezone.utc))
         )
 
+    async def cancel_all_for_tenant(self, tenant_id: uuid.UUID) -> None:
+        """Turn off auto_renew and reset retry state on ALL subscriptions for a tenant."""
+        await self.db.execute(
+            update(Subscription)
+            .where(Subscription.tenant_id == tenant_id)
+            .values(
+                auto_renew=False,
+                renewal_attempts=0,
+                next_retry_at=None,
+                renewal_failed_at=None,
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
+
+    async def expire_all_old_for_tenant(self, tenant_id: uuid.UUID, exclude_id: uuid.UUID) -> None:
+        """Expire ALL active subscriptions for a tenant except the given one."""
+        await self.db.execute(
+            update(Subscription)
+            .where(
+                Subscription.tenant_id == tenant_id,
+                Subscription.id != exclude_id,
+                Subscription.status == "active",
+            )
+            .values(
+                status="expired",
+                auto_renew=False,
+                renewal_attempts=0,
+                next_retry_at=None,
+                renewal_failed_at=None,
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
+
     async def get_expired_auto_renew_subscriptions(self) -> list[Subscription]:
         """Find subscriptions eligible for auto-renewal with retry logic."""
         now = datetime.now(timezone.utc)

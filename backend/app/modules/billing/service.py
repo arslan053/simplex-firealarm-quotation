@@ -47,14 +47,23 @@ class BillingService:
                 detail=f"Invalid plan: {plan}. Must be 'monthly', 'per_project', or 'card_update'.",
             )
 
-        # ━━━ GUARD 4: No active subscription allowed for monthly ━━━
+        # ━━━ GUARD 4: Monthly only allowed for first-time or cancelled users ━━━
         if plan == "monthly":
             active_sub = await self.repo.get_active_subscription(tenant_id)
             if active_sub:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
-                    detail="An active subscription already exists. Wait until it expires or purchase per-project credits.",
+                    detail="An active subscription already exists.",
                 )
+            # Block if auto_renew is on or saved card exists (system will handle renewal)
+            latest = await self.repo.get_latest_subscription(tenant_id)
+            if latest:
+                has_card = await self.repo.get_active_token(tenant_id)
+                if latest.auto_renew or has_card:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="Auto-renewal is active. Cancel your subscription first if you want to subscribe manually.",
+                    )
 
         # Validate quantity for per_project
         if plan == "per_project":
@@ -233,13 +242,8 @@ class BillingService:
     ) -> None:
         now = datetime.now(timezone.utc)
         if plan == "monthly":
-            # Expire any old subscription and reset its retry state (manual renewal case)
-            latest = await self.repo.get_latest_subscription(tenant_id)
-            if latest and latest.expires_at <= now:
-                await self.repo.expire_subscription(latest.id)
-                await self.repo.reset_retry_state(latest.id)
-
-            await self.repo.create_subscription(
+            # Create new subscription
+            new_sub = await self.repo.create_subscription(
                 tenant_id=tenant_id,
                 amount_paid=PLAN_CONFIG["monthly"]["amount"],
                 projects_limit=25,
@@ -248,6 +252,8 @@ class BillingService:
                 moyasar_payment_id=moyasar_payment_id,
                 auto_renew=True,
             )
+            # Expire ALL old subscriptions — ensures no old sub triggers cron
+            await self.repo.expire_all_old_for_tenant(tenant_id, new_sub.id)
         elif plan == "per_project":
             await self.repo.increment_credits(tenant_id, quantity)
 
@@ -316,6 +322,57 @@ class BillingService:
             "amount_paid": sub.amount_paid,
             "renewal_attempts": sub.renewal_attempts,
         }
+
+    async def cancel_subscription(self, tenant_id: uuid.UUID) -> dict:
+        """
+        Cancel auto-renewal on ALL subscriptions for this tenant.
+        Deletes saved card. Cron will never touch this tenant again.
+        Current active subscription remains usable until it expires naturally.
+        """
+        latest = await self.repo.get_latest_subscription(tenant_id)
+        if not latest:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No subscription found.",
+            )
+
+        # Turn off auto-renew on ALL subscriptions (not just latest)
+        await self.repo.cancel_all_for_tenant(tenant_id)
+
+        # Delete all saved cards (DB + Moyasar)
+        tokens = await self.repo.list_tokens(tenant_id)
+        for t in tokens:
+            try:
+                await self.moyasar.delete_token(t.moyasar_token)
+            except Exception:
+                logger.warning("Failed to delete token on Moyasar: %s", t.moyasar_token)
+            await self.repo.revoke_token(t.id)
+
+        return {"message": "Subscription cancelled. Your current plan remains active until it expires."}
+
+    # ── Manual Renewal (charge saved card) ─────────────────────────────
+
+    async def renew_now(self, tenant_id: uuid.UUID, user_id: uuid.UUID) -> dict:
+        """
+        Charge the saved card immediately to renew the subscription.
+        Reuses the shared charge_saved_card() from renewal_service.
+        No retry state tracking — manual action is one-shot.
+        """
+        from app.modules.billing.renewal_service import charge_saved_card  # noqa: E402
+
+        result = await charge_saved_card(self.repo, tenant_id, user_id, payment_type="manual")
+
+        if not result.success:
+            if result.message == "No saved payment method.":
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="No saved payment method. Please make a payment first to save your card.",
+                )
+            detail = _user_facing_decline_message(result.decline_reason or result.message)
+            raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail=detail)
+
+        quota = await get_quota_status(tenant_id, self.db)
+        return self._build_verify_result(True, result.message, tenant_id, quota)
 
     # ── Card Update (Replace) ────────────────────────────────────────
 
@@ -462,12 +519,12 @@ class BillingService:
             if decline_alert:
                 alerts.append(decline_alert)
         else:
-            # Just expired, hasn't tried renewal yet
+            # Just expired, cron hasn't tried yet — renewal is pending
             alerts.append({
-                "type": "renewal_failed",
+                "type": "renewal_pending",
                 "message": (
-                    "Your subscription has expired and auto-renewal failed. "
-                    "Please update your payment method to continue creating projects."
+                    "Your subscription has expired. Auto-renewal will process shortly. "
+                    "You can also click 'Renew Now' to renew immediately."
                 ),
             })
 

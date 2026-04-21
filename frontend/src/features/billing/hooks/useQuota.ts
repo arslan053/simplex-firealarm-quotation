@@ -31,6 +31,7 @@ export function useQuota() {
     message: quota?.message ?? '',
     subscription: quota?.subscription ?? null,
     creditsBalance: quota?.credits_balance ?? 0,
+    canBuyMonthly: quota?.can_buy_monthly ?? false,
     isLoading,
     error,
     refetch: fetch,

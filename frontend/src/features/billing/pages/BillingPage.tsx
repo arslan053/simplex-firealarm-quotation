@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { CreditCard } from 'lucide-react';
 
 import { Card } from '@/shared/ui/Card';
@@ -18,7 +18,12 @@ type FlowMode = 'idle' | 'select_plan' | 'payment' | 'update_card';
 
 export function BillingPage() {
   const { user } = useAuth();
-  const { subscription, creditsBalance } = useQuota();
+  const { subscription, creditsBalance, canBuyMonthly, refetch } = useQuota();
+  const [hasSavedCard, setHasSavedCard] = useState(false);
+
+  useEffect(() => {
+    billingApi.listCards().then(({ data }) => setHasSavedCard(data.length > 0)).catch(() => {});
+  }, []);
 
   const [flowMode, setFlowMode] = useState<FlowMode>('idle');
   const [selectedPlan, setSelectedPlan] = useState<'monthly' | 'per_project' | null>(null);
@@ -26,8 +31,6 @@ export function BillingPage() {
   const [paymentData, setPaymentData] = useState<InitiatePaymentResponse | null>(null);
   const [initiating, setInitiating] = useState(false);
   const [error, setError] = useState('');
-
-  const hasActiveSub = subscription?.status === 'active' && new Date(subscription.expires_at) > new Date();
 
   const handleSelectPlan = (plan: 'monthly' | 'per_project') => {
     setSelectedPlan(plan);
@@ -84,6 +87,8 @@ export function BillingPage() {
         <SubscriptionCard
           subscription={subscription}
           onBuySubscription={() => handleSelectPlan('monthly')}
+          onRenewed={refetch}
+          hasSavedCard={hasSavedCard}
         />
         <CreditBalanceCard
           balance={creditsBalance}
@@ -104,7 +109,7 @@ export function BillingPage() {
             <PlanSelector
               selected={selectedPlan}
               onSelect={(plan) => { setSelectedPlan(plan); }}
-              monthlyDisabled={hasActiveSub}
+              monthlyDisabled={!canBuyMonthly}
               quantity={creditQuantity}
               onQuantityChange={setCreditQuantity}
             />
@@ -133,6 +138,7 @@ export function BillingPage() {
               currency={paymentData.currency}
               description={paymentData.description}
               callbackUrl={callbackUrl}
+              saveCard={selectedPlan === 'monthly'}
               metadata={{
                 internal_id: paymentData.internal_id,
                 tenant_id: user?.tenant_id || '',
@@ -187,6 +193,7 @@ export function BillingPage() {
                 currency={paymentData.currency}
                 description={paymentData.description}
                 callbackUrl={callbackUrl}
+                saveCard={true}
                 metadata={{
                   internal_id: paymentData.internal_id,
                   tenant_id: user?.tenant_id || '',

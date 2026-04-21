@@ -16,6 +16,7 @@ interface Props {
   description: string;
   metadata: Record<string, string>;
   callbackUrl: string;
+  saveCard?: boolean;
   onCompleted?: (payment: unknown) => void;
   onFailure?: (error: unknown) => void;
 }
@@ -68,6 +69,7 @@ export function MoyasarPaymentForm({
   description,
   metadata,
   callbackUrl,
+  saveCard = false,
   onCompleted,
   onFailure,
 }: Props) {
@@ -101,7 +103,7 @@ export function MoyasarPaymentForm({
       metadata,
       methods: ['creditcard', 'stcpay'],
       credit_card: {
-        save_card: true,
+        save_card: saveCard,
       },
       on_completed: (payment: unknown) => {
         onCompleted?.(payment);

@@ -3,7 +3,7 @@
 # All jobs use the shared cron runner: python -m app.shared.cron.runner <job_name>
 
 # Auto-renewal check — every hour
-0 * * * * cd /app && python -m app.shared.cron.runner billing_renewal >> /var/log/cron.log 2>&1
+0 * * * * cd /app && /usr/local/bin/python3 -m app.shared.cron.runner billing_renewal >> /var/log/cron.log 2>&1
 
 # (Add new cron jobs here — register them in app/shared/cron/registry.py first)
 

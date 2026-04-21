@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { CheckCircle, XCircle, Loader2 } from 'lucide-react';
 
@@ -14,7 +14,13 @@ export function PaymentVerifyPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
 
+  const verifiedRef = useRef(false);
+
   useEffect(() => {
+    // Prevent double call in React 18 StrictMode
+    if (verifiedRef.current) return;
+    verifiedRef.current = true;
+
     const moyasarId = searchParams.get('id');
     if (!moyasarId) {
       setError('Missing payment ID in URL.');
