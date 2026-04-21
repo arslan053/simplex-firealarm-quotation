@@ -11,6 +11,7 @@ from app.modules.projects.countries import (
 from app.modules.clients.repository import ClientRepository
 from app.modules.projects.repository import ProjectRepository
 from app.modules.projects.schemas import CreateProjectRequest, UpdateProjectRequest
+from app.shared.quota import consume_quota, get_quota_status
 
 
 class ProjectService:
@@ -39,6 +40,14 @@ class ProjectService:
                 detail="Client not found in this tenant.",
             )
 
+        # Payment gate — check quota before creating project
+        quota = await get_quota_status(tenant_id, self.db)
+        if not quota.can_create:
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail=quota.message,
+            )
+
         project = await self.repo.create(
             tenant_id=tenant_id,
             owner_user_id=owner_user_id,
@@ -48,6 +57,10 @@ class ProjectService:
             city=normalize_city(data.city),
             due_date=data.due_date,
         )
+
+        # Consume quota after successful creation
+        await consume_quota(tenant_id, quota.source, self.db)
+
         return project
 
     async def get_project(

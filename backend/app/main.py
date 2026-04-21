@@ -27,6 +27,8 @@ from app.modules.pricing.router import router as pricing_router
 from app.modules.quotation.router import router as quotation_router
 from app.modules.tenant_pricing.router import router as tenant_pricing_router
 from app.modules.company_settings.router import router as company_settings_router
+from app.modules.billing.router import router as billing_router
+from app.modules.billing.webhook_router import webhook_router as billing_webhook_router
 
 
 @asynccontextmanager
@@ -74,6 +76,8 @@ app.include_router(pricing_router)
 app.include_router(quotation_router)
 app.include_router(tenant_pricing_router)
 app.include_router(company_settings_router)
+app.include_router(billing_router)
+app.include_router(billing_webhook_router)
 
 
 @app.get("/api/health")

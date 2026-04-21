@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft } from 'lucide-react';
+import { AlertTriangle, ArrowLeft } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -11,6 +11,7 @@ import { Button } from '@/shared/ui/Button';
 import { Input } from '@/shared/ui/Input';
 import { normalizeError } from '@/shared/api/errors';
 import { ClientSelector } from '@/features/clients/components/ClientSelector';
+import { useQuota } from '@/features/billing/hooks/useQuota';
 
 const schema = z.object({
   project_name: z.string().min(1, 'Project name is required'),
@@ -26,6 +27,7 @@ export function CreateProjectPage() {
   const [searchParams] = useSearchParams();
   const [countries, setCountries] = useState<string[]>([]);
   const [submitError, setSubmitError] = useState('');
+  const { canCreate, message: quotaMessage, isLoading: quotaLoading } = useQuota();
 
   // Client selection state
   const [clientId, setClientId] = useState<string | null>(searchParams.get('clientId'));
@@ -76,6 +78,25 @@ export function CreateProjectPage() {
           <p className="text-sm text-gray-500">Fill in the project details below</p>
         </div>
       </div>
+
+      {!quotaLoading && !canCreate && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-600" />
+            <div>
+              <p className="text-sm font-medium text-amber-800">{quotaMessage}</p>
+              <Button
+                size="sm"
+                variant="outline"
+                className="mt-2"
+                onClick={() => navigate('/billing')}
+              >
+                Go to Billing
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <Card>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">

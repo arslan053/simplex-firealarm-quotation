@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     MINIO_USE_SSL: bool = False
     MINIO_EXTERNAL_USE_SSL: bool = False
     OPENAI_API_KEY: str = ""
+    MOYASAR_SECRET_KEY: str = ""
+    MOYASAR_WEBHOOK_SECRET: str = ""
 
     @property
     def cors_origins_list(self) -> list[str]:
