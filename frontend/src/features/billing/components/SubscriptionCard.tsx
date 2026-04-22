@@ -112,7 +112,7 @@ export function SubscriptionCard({ subscription, onBuySubscription, onRenewed, h
         {confirmAction === 'renew' && (
           <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-4 space-y-3">
             <p className="text-sm text-indigo-900">
-              Your saved card will be charged <strong>$250.00</strong> for a monthly subscription (25 projects, 30 days).
+              Your saved card will be charged <strong>250.00 SAR</strong> for a monthly subscription (25 projects, 30 days).
             </p>
             <div className="flex gap-2">
               <Button size="sm" onClick={handleRenewNow} isLoading={loading}>

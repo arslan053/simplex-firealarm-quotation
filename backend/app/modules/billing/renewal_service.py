@@ -70,7 +70,7 @@ async def charge_saved_card(
         user_id=user_id,
         plan="monthly",
         amount=MONTHLY_AMOUNT,
-        currency="USD",
+        currency="SAR",
         given_id=given_id,
         payment_type=payment_type,
     )
@@ -83,7 +83,7 @@ async def charge_saved_card(
         result = await moyasar.charge_token(
             token=token.moyasar_token,
             amount=MONTHLY_AMOUNT,
-            currency="USD",
+            currency="SAR",
             description="Monthly Subscription Renewal",
             callback_url=callback_url,
             metadata={

@@ -149,7 +149,7 @@ export function BillingPage() {
         </Card>
       )}
 
-      {/* Card Update — $1 verification charge, automatically refunded */}
+      {/* Card Update — 1 SAR verification charge, automatically refunded */}
       {flowMode === 'update_card' && (
         <Card>
           <div className="space-y-4">
@@ -163,7 +163,7 @@ export function BillingPage() {
             <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800 space-y-1">
               <p className="font-medium">How it works:</p>
               <ul className="list-disc pl-4 space-y-0.5">
-                <li>A <strong>$1.00 verification charge</strong> will be placed on your new card.</li>
+                <li>A <strong>1.00 SAR verification charge</strong> will be placed on your new card.</li>
                 <li>This charge is <strong>automatically refunded</strong> once your card is verified.</li>
                 <li>Your new card will replace the current one and be used for future auto-renewals.</li>
                 <li>If the refund doesn't appear within a few business days, please contact support.</li>

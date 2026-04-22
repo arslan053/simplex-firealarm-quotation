@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.shared.storage import delete_file, get_file_bytes, get_file_url, upload_file
 
+from .excel_generator import generate_quotation_xlsx
 from .generator import QuotationData, QuotationProduct, generate_quotation
 from .inclusions import get_questions_for_option
 from .schemas import GenerateQuotationRequest, QuotationDownloadResponse, QuotationResponse
@@ -169,7 +170,7 @@ class QuotationService:
             except Exception:
                 pass  # Fall back to default signature
 
-        # 6. Build DOCX
+        # 6. Build both DOCX and XLSX
         qdata = QuotationData(
             client_name=data.client_name,
             client_address=data.client_address,
@@ -192,27 +193,38 @@ class QuotationService:
             company_phone=tenant_settings.get("company_phone"),
         )
         docx_bytes = generate_quotation(qdata)
+        xlsx_bytes = generate_quotation_xlsx(qdata)
 
-        # 6. Check for existing quotation
+        # 6b. Check for existing quotation
         existing = await self._get_existing(tenant_id, project_id)
 
-        # 7. Upload to MinIO
-        file_name = f"Quotation_{ref_number.replace('/', '-')}.docx"
+        # 7. Upload both files to MinIO (same UUID prefix, different extensions)
+        base_name = f"Quotation_{ref_number.replace('/', '-')}"
         file_uuid = str(uuid.uuid4())
-        object_key = f"{tenant_id}/{project_id}/quotations/{file_uuid}_{file_name}"
+        docx_key = f"{tenant_id}/{project_id}/quotations/{file_uuid}_{base_name}.docx"
+        xlsx_key = f"{tenant_id}/{project_id}/quotations/{file_uuid}_{base_name}.xlsx"
+        file_name = f"{base_name}.docx"
 
         if existing:
-            # Delete old file from MinIO
-            try:
-                delete_file(existing["object_key"])
-            except Exception:
-                pass  # Old file may already be gone
+            # Delete old files from MinIO
+            old_key = existing["object_key"]
+            for key in (old_key, old_key.rsplit(".", 1)[0] + ".xlsx"):
+                try:
+                    delete_file(key)
+                except Exception:
+                    pass  # Old file may already be gone
 
         upload_file(
-            object_key,
+            docx_key,
             docx_bytes,
             content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         )
+        upload_file(
+            xlsx_key,
+            xlsx_bytes,
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        object_key = docx_key
 
         now = datetime.now(timezone.utc)
 
@@ -354,7 +366,7 @@ class QuotationService:
         )
 
     async def get_download_url(
-        self, tenant_id: uuid.UUID, project_id: uuid.UUID
+        self, tenant_id: uuid.UUID, project_id: uuid.UUID, fmt: str = "docx"
     ) -> QuotationDownloadResponse | None:
         result = await self.db.execute(
             text("""
@@ -368,8 +380,14 @@ class QuotationService:
         if not row:
             return None
 
-        url = get_file_url(row[0], tenant_id=str(tenant_id))
-        return QuotationDownloadResponse(url=url, file_name=row[1])
+        object_key = row[0]
+        file_name = row[1]
+        if fmt == "xlsx":
+            object_key = object_key.rsplit(".", 1)[0] + ".xlsx"
+            file_name = file_name.rsplit(".", 1)[0] + ".xlsx"
+
+        url = get_file_url(object_key, tenant_id=str(tenant_id))
+        return QuotationDownloadResponse(url=url, file_name=file_name)
 
     async def get_preview_pdf(
         self, tenant_id: uuid.UUID, project_id: uuid.UUID

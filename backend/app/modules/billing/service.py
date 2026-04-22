@@ -21,9 +21,9 @@ from app.shared.quota import get_quota_status
 logger = logging.getLogger(__name__)
 
 PLAN_CONFIG = {
-    "monthly": {"amount": 25000, "currency": "USD", "description": "Monthly Subscription - 25 Projects"},
-    "per_project": {"amount": 2500, "currency": "USD", "description": "Per-Project Purchase - 1 Project"},
-    "card_update": {"amount": 100, "currency": "USD", "description": "Card Verification - $1 (refunded automatically)"},
+    "monthly": {"amount": 25000, "currency": "SAR", "description": "Monthly Subscription - 25 Projects"},
+    "per_project": {"amount": 2500, "currency": "SAR", "description": "Per-Project Purchase - 1 Project"},
+    "card_update": {"amount": 100, "currency": "SAR", "description": "Card Verification - 1 SAR (refunded automatically)"},
 }
 
 MONTHLY_AMOUNT = 25000
@@ -200,7 +200,7 @@ class BillingService:
         source = moyasar_data.get("source") or {}
         token = source.get("token")
 
-        # Handle card_update: save new card, refund the $1, replace old cards
+        # Handle card_update: save new card, refund the 1 SAR, replace old cards
         if payment.plan == "card_update":
             if token:
                 # Revoke all old tokens first
@@ -214,16 +214,16 @@ class BillingService:
                 # Save new token
                 await self._save_card_token(tenant_id, user_id, token, source)
 
-            # Refund the $1 verification charge
+            # Refund the 1 SAR verification charge
             try:
                 await self.moyasar.refund_payment(moyasar_payment_id)
-                logger.info("Card update: refunded $1 for %s", moyasar_payment_id)
+                logger.info("Card update: refunded 1 SAR for %s", moyasar_payment_id)
             except Exception:
-                logger.exception("Card update: failed to refund $1 for %s", moyasar_payment_id)
+                logger.exception("Card update: failed to refund 1 SAR for %s", moyasar_payment_id)
 
             quota = await get_quota_status(tenant_id, self.db)
             return self._build_verify_result(
-                True, "Payment method updated successfully. The $1 verification charge will be refunded.", tenant_id, quota
+                True, "Payment method updated successfully. The 1 SAR verification charge will be refunded.", tenant_id, quota
             )
 
         # Activate subscription or increment credits

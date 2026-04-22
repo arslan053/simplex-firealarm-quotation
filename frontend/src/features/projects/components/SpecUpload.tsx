@@ -17,6 +17,7 @@ export function SpecUpload({ projectId, refreshKey, onSpecUploaded }: SpecUpload
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [existingSpec, setExistingSpec] = useState(false);
+  const [existingFileName, setExistingFileName] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [showWarning, setShowWarning] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -32,6 +33,7 @@ export function SpecUpload({ projectId, refreshKey, onSpecUploaded }: SpecUpload
         setExistingSpec(data.exists);
         if (data.exists && data.document) {
           setDocumentId(data.document.id);
+          setExistingFileName(data.document.original_file_name);
         }
       })
       .catch(() => {});
@@ -67,6 +69,7 @@ export function SpecUpload({ projectId, refreshKey, onSpecUploaded }: SpecUpload
       const { data } = await specApi.upload(projectId, selectedFile);
       setExistingSpec(true);
       setDocumentId(data.document.id);
+      setExistingFileName(data.document.original_file_name);
       setUploaded(true);
       onSpecUploaded();
 
@@ -88,11 +91,19 @@ export function SpecUpload({ projectId, refreshKey, onSpecUploaded }: SpecUpload
         <div className="flex flex-col items-center py-6 text-center">
           <FileUp className="mb-3 h-10 w-10 text-indigo-400" />
           <h3 className="text-sm font-semibold text-gray-900">
-            Upload Specification File
+            {existingSpec ? 'Replace Specification File' : 'Upload Specification File'}
           </h3>
           <p className="mt-1 text-xs text-gray-500">
             Technical specifications document (.pdf)
           </p>
+
+          {/* Existing spec indicator */}
+          {existingSpec && existingFileName && !uploaded && (
+            <div className="mt-3 flex items-center gap-2 rounded-lg bg-green-50 px-4 py-2 text-sm text-green-700">
+              <CheckCircle className="h-4 w-4 flex-shrink-0" />
+              <span>Current: <span className="font-medium">{existingFileName}</span></span>
+            </div>
+          )}
 
           <div className="mt-4 flex flex-col items-center gap-3">
             <input
@@ -109,7 +120,7 @@ export function SpecUpload({ projectId, refreshKey, onSpecUploaded }: SpecUpload
               disabled={!selectedFile || uploading}
               isLoading={uploading}
             >
-              {uploading ? 'Uploading...' : 'Upload Spec'}
+              {uploading ? 'Uploading...' : existingSpec ? 'Replace Spec' : 'Upload Spec'}
             </Button>
           </div>
 

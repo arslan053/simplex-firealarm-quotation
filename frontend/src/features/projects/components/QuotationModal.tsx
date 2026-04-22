@@ -13,6 +13,8 @@ interface QuotationModalProps {
   existingQuotation: QuotationResponse | null;
   onClose: () => void;
   onGenerated: (quotation: QuotationResponse) => void;
+  /** When provided, modal saves config only (no generation). */
+  onConfigured?: (config: GenerateQuotationRequest) => void;
 }
 
 const SERVICE_OPTIONS = [
@@ -40,6 +42,7 @@ export function QuotationModal({
   existingQuotation,
   onClose,
   onGenerated,
+  onConfigured,
 }: QuotationModalProps) {
   // If existing quotation, skip straight to step 2 (questions)
   const [step, setStep] = useState<1 | 2>(existingQuotation ? 2 : 1);
@@ -49,6 +52,7 @@ export function QuotationModal({
   const [clientAddress, setClientAddress] = useState(existingQuotation?.client_address || '');
   const [subject, setSubject] = useState(existingQuotation?.subject || '');
   const [serviceOption, setServiceOption] = useState(existingQuotation?.service_option || 1);
+  const [marginInput, setMarginInput] = useState(String(margin));
   const [advancePercent, setAdvancePercent] = useState(25);
   const [deliveryPercent, setDeliveryPercent] = useState(70);
   const [completionPercent, setCompletionPercent] = useState(5);
@@ -139,12 +143,19 @@ export function QuotationModal({
       client_address: clientAddress.trim(),
       subject: subject.trim() || undefined,
       service_option: serviceOption,
-      margin_percent: margin,
+      margin_percent: parseFloat(marginInput) || 0,
       payment_terms_text: paymentMode === 'custom'
         ? customPaymentText.trim()
         : buildDefaultPaymentText(advancePercent, deliveryPercent, completionPercent),
       inclusion_answers: filteredAnswers,
     };
+
+    // Config-only mode: return data without generating
+    if (onConfigured) {
+      onConfigured(payload);
+      setLoading(false);
+      return;
+    }
 
     try {
       const { data } = await quotationApi.generate(projectId, payload);
@@ -351,10 +362,21 @@ export function QuotationModal({
               )}
             </div>
 
-            {/* Margin display */}
-            <div className="flex items-center justify-between rounded-lg bg-gray-50 px-4 py-3">
-              <span className="text-sm text-gray-600">Margin</span>
-              <span className="text-sm font-medium text-gray-900">{margin}%</span>
+            {/* Margin */}
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">
+                Margin %
+              </label>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                step="0.1"
+                value={marginInput}
+                onChange={(e) => setMarginInput(e.target.value)}
+                onBlur={() => { if (marginInput.trim() === '') setMarginInput('0'); }}
+                className="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
             </div>
 
             {/* Step 1 Footer */}
@@ -498,11 +520,11 @@ export function QuotationModal({
                 </Button>
                 <Button type="submit" disabled={loading} isLoading={loading}>
                   {loading ? (
-                    'Generating...'
+                    onConfigured ? 'Saving...' : 'Generating...'
                   ) : (
                     <>
                       <FileText className="mr-2 h-4 w-4" />
-                      {existingQuotation ? 'Regenerate' : 'Generate'}
+                      {onConfigured ? 'Save Configuration' : existingQuotation ? 'Regenerate' : 'Generate'}
                     </>
                   )}
                 </Button>

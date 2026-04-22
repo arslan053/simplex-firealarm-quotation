@@ -35,7 +35,7 @@ export function PlanSelector({ selected, onSelect, monthlyDisabled, quantity, on
         <div className="mb-3">
           <p className="font-semibold text-gray-900">Monthly Subscription</p>
           <div className="mt-1">
-            <span className="text-2xl font-bold text-gray-900">$250</span>
+            <span className="text-2xl font-bold text-gray-900">250 SAR</span>
             <span className="text-sm text-gray-500">/month</span>
           </div>
         </div>
@@ -75,7 +75,7 @@ export function PlanSelector({ selected, onSelect, monthlyDisabled, quantity, on
         <div className="mb-3">
           <p className="font-semibold text-gray-900">Per-Project</p>
           <div className="mt-1">
-            <span className="text-2xl font-bold text-gray-900">${total}</span>
+            <span className="text-2xl font-bold text-gray-900">{total} SAR</span>
             <span className="text-sm text-gray-500"> for {quantity} credit{quantity > 1 ? 's' : ''}</span>
           </div>
         </div>
@@ -118,14 +118,14 @@ export function PlanSelector({ selected, onSelect, monthlyDisabled, quantity, on
               </div>
             </div>
             <div className="flex items-center justify-between text-sm">
-              <span className="text-gray-500">$25 x {quantity}</span>
-              <span className="font-semibold text-gray-900">${total}.00</span>
+              <span className="text-gray-500">25 SAR x {quantity}</span>
+              <span className="font-semibold text-gray-900">{total}.00 SAR</span>
             </div>
           </div>
         ) : (
           <ul className="space-y-1.5">
             <li className="flex items-center gap-2 text-sm text-gray-600">
-              <Check className="h-3.5 w-3.5 text-green-500" />$25 per credit
+              <Check className="h-3.5 w-3.5 text-green-500" />25 SAR per credit
             </li>
             <li className="flex items-center gap-2 text-sm text-gray-600">
               <Check className="h-3.5 w-3.5 text-green-500" />Never expires

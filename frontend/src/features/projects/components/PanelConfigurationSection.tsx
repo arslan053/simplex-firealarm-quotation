@@ -99,9 +99,10 @@ interface PanelConfigurationSectionProps {
   projectId: string;
   onPanelComplete?: () => void;
   hasSpec?: boolean;
+  readOnly?: boolean;
 }
 
-export function PanelConfigurationSection({ projectId, onPanelComplete, hasSpec = true }: PanelConfigurationSectionProps) {
+export function PanelConfigurationSection({ projectId, onPanelComplete, hasSpec = true, readOnly = false }: PanelConfigurationSectionProps) {
   const [loading, setLoading] = useState(false);
   const [jobStatus, setJobStatus] = useState<PanelSelectionJobStatus | null>(null);
   const [error, setError] = useState('');
@@ -290,10 +291,12 @@ export function PanelConfigurationSection({ projectId, onPanelComplete, hasSpec 
             Determine panel type, base unit and child cards from BOQ analysis
           </p>
         </div>
-        <Button variant="primary" onClick={handleRun} disabled={loading} isLoading={loading}>
-          <Cpu className="mr-2 h-4 w-4" />
-          {loading ? 'Running...' : 'Run Panel Selection'}
-        </Button>
+        {!readOnly && (
+          <Button variant="primary" onClick={handleRun} disabled={loading} isLoading={loading}>
+            <Cpu className="mr-2 h-4 w-4" />
+            {loading ? 'Running...' : 'Run Panel Selection'}
+          </Button>
+        )}
       </div>
 
       {/* Loading */}

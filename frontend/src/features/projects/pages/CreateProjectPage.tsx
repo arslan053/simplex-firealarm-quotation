@@ -58,7 +58,7 @@ export function CreateProjectPage() {
         ...formData,
         client_id: clientId,
       });
-      navigate(`/projects/${data.id}`);
+      navigate(`/projects/${data.id}/setup`);
     } catch (err) {
       setSubmitError(normalizeError(err).message);
     }

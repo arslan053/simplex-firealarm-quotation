@@ -30,6 +30,8 @@ services:
       - "3000:3000"
     env_file:
       - ./frontend/.env
+    environment:
+      VITE_API_URL: ""
     networks:
       - boq_net
     depends_on:
