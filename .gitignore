@@ -33,13 +33,3 @@ GitHubtoken*.txt
 
 # Misc
 *.log
-*.xlsx
-
-# n8n full instance exports (large, not needed in repo)
-n8n-waha/tX77*
-
-# Enhancement prompts (drafts, not code)
-enhancement_prompts/
-
-# n8n evolution (historical, not active)
-n8n-evolution/
