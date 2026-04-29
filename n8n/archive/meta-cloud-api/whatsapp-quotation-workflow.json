@@ -1,0 +1,411 @@
+{
+  "name": "WhatsApp Quotation Bot",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "whatsapp-quotation",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000001",
+      "name": "Verify Webhook (GET)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [100, 100],
+      "webhookId": "whatsapp-quotation-get"
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.query['hub.challenge'] }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000002",
+      "name": "Return Challenge",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [400, 100]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "whatsapp-quotation",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000003",
+      "name": "WhatsApp Webhook (POST)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [100, 400],
+      "webhookId": "whatsapp-quotation-post"
+    },
+    {
+      "parameters": {
+        "respondWith": "noData",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000004",
+      "name": "Acknowledge",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [350, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// Node 5: Parse Message\n// Extracts sender phone, message type, text/media/flow data\n// from the Meta WhatsApp Cloud API webhook payload.\n// ============================================================\n\nconst body = $input.first().json.body;\n\n// Safety: only process actual messages, ignore status updates\nconst entry = body?.entry?.[0];\nconst changes = entry?.changes?.[0];\nconst value = changes?.value;\nconst message = value?.messages?.[0];\n\nif (!message) {\n  return [{ json: { skip: true } }];\n}\n\nconst senderPhone = message.from;\nconst messageId = message.id;\nconst messageType = message.type; // text, document, image, interactive\n\nlet messageText = '';\nlet mediaId = '';\nlet mediaMimeType = '';\nlet mediaFileName = '';\nlet flowResponseData = null;\n\nif (messageType === 'text') {\n  messageText = message.text?.body || '';\n} else if (messageType === 'interactive') {\n  const interactive = message.interactive;\n  if (interactive?.type === 'button_reply') {\n    messageText = interactive.button_reply.id;\n  } else if (interactive?.type === 'nfm_reply') {\n    try {\n      flowResponseData = JSON.parse(interactive.nfm_reply.response_json);\n    } catch (e) {\n      flowResponseData = null;\n    }\n  }\n} else if (messageType === 'document') {\n  mediaId = message.document.id;\n  mediaMimeType = message.document.mime_type || '';\n  mediaFileName = message.document.filename || 'document';\n} else if (messageType === 'image') {\n  mediaId = message.image.id;\n  mediaMimeType = message.image.mime_type || 'image/jpeg';\n  mediaFileName = 'image.jpg';\n}\n\nreturn [{\n  json: {\n    skip: false,\n    senderPhone,\n    messageId,\n    messageType,\n    messageText,\n    mediaId,\n    mediaMimeType,\n    mediaFileName,\n    flowResponseData,\n  }\n}];"
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000005",
+      "name": "Parse Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// Node 6: State Machine\n// Manages conversational state per phone number.\n// Uses $getWorkflowStaticData('global') for persistence.\n// ============================================================\n\n// ==================== CONFIGURATION ==========================\n// Replace these values with your actual credentials:\nconst WHATSAPP_PHONE_NUMBER_ID = 'YOUR_PHONE_NUMBER_ID';\nconst WHATSAPP_ACCESS_TOKEN = 'YOUR_WHATSAPP_ACCESS_TOKEN';\nconst BACKEND_API_URL = 'https://tenant.amprosystem.com/api';\nconst BACKEND_AUTH_TOKEN = 'YOUR_BACKEND_AUTH_TOKEN';\nconst CLIENT_FLOW_ID = 'YOUR_CLIENT_FLOW_ID';\nconst PROJECT_FLOW_ID = 'YOUR_PROJECT_FLOW_ID';\nconst CONFIG_FLOW_ID = 'YOUR_CONFIG_FLOW_ID';\n// =============================================================\n\nconst input = $input.first().json;\n\nif (input.skip) {\n  return [{ json: { action: 'no_op' } }];\n}\n\nconst {\n  senderPhone, messageType, messageText,\n  mediaId, mediaMimeType, mediaFileName, flowResponseData\n} = input;\n\n// Persistent state per phone number\nconst globalData = $getWorkflowStaticData('global');\nif (!globalData.conversations) {\n  globalData.conversations = {};\n}\nif (!globalData.conversations[senderPhone]) {\n  globalData.conversations[senderPhone] = { state: 'new' };\n}\n\nconst conv = globalData.conversations[senderPhone];\nconst state = conv.state;\n\nlet action = 'no_op';\nlet payload = {};\n\nconst WA_URL = `https://graph.facebook.com/v21.0/${WHATSAPP_PHONE_NUMBER_ID}/messages`;\n\nswitch (state) {\n\n  // ---- NEW: greet and ask to start ----\n  case 'new': {\n    action = 'send_buttons';\n    payload = {\n      to: senderPhone,\n      body: 'Welcome! Would you like to generate a quotation?',\n      buttons: [\n        { id: 'yes', title: 'Yes' },\n        { id: 'no', title: 'No' },\n      ],\n    };\n    conv.state = 'awaiting_confirm';\n    break;\n  }\n\n  // ---- AWAITING CONFIRM ----\n  case 'awaiting_confirm': {\n    if (messageText === 'yes') {\n      action = 'send_text';\n      payload = {\n        to: senderPhone,\n        text: 'Please send your BOQ file.\\n\\nAccepted formats:\\n- Excel (.xlsx)\\n- PDF (.pdf)\\n- Images (you can send multiple)',\n      };\n      conv.state = 'awaiting_boq';\n    } else if (messageText === 'no') {\n      action = 'send_text';\n      payload = {\n        to: senderPhone,\n        text: 'No problem! Send me a message anytime to start.',\n      };\n      conv.state = 'new';\n    } else {\n      action = 'send_buttons';\n      payload = {\n        to: senderPhone,\n        body: 'Please tap one of the buttons below.',\n        buttons: [\n          { id: 'yes', title: 'Yes' },\n          { id: 'no', title: 'No' },\n        ],\n      };\n    }\n    break;\n  }\n\n  // ---- AWAITING BOQ ----\n  case 'awaiting_boq': {\n    if (messageType === 'document') {\n      const isXlsx = mediaMimeType.includes('spreadsheet') ||\n                     mediaMimeType.includes('excel') ||\n                     mediaFileName.endsWith('.xlsx');\n      const isPdf = mediaMimeType === 'application/pdf' ||\n                    mediaFileName.endsWith('.pdf');\n\n      if (isXlsx || isPdf) {\n        conv.boq_media_id = mediaId;\n        conv.boq_media_type = isPdf ? 'pdf' : 'xlsx';\n        conv.boq_filename = mediaFileName;\n        conv.boq_mime_type = mediaMimeType;\n\n        action = 'send_text';\n        payload = {\n          to: senderPhone,\n          text: 'BOQ file received.\\n\\nNow please send your Specification file (PDF only).',\n        };\n        conv.state = 'awaiting_spec';\n      } else {\n        action = 'send_text';\n        payload = {\n          to: senderPhone,\n          text: 'Unsupported file format. Please send an Excel (.xlsx) or PDF (.pdf) file.',\n        };\n      }\n    } else if (messageType === 'image') {\n      conv.boq_images = [{ media_id: mediaId, mime_type: mediaMimeType }];\n      conv.boq_media_type = 'images';\n\n      action = 'send_buttons';\n      payload = {\n        to: senderPhone,\n        body: 'Image received! Send more images or tap Done.',\n        buttons: [\n          { id: 'more_images', title: 'Send More' },\n          { id: 'done_images', title: 'Done' },\n        ],\n      };\n      conv.state = 'collecting_boq_images';\n    } else {\n      action = 'send_text';\n      payload = {\n        to: senderPhone,\n        text: 'Please send a BOQ file (Excel, PDF, or images).',\n      };\n    }\n    break;\n  }\n\n  // ---- COLLECTING BOQ IMAGES ----\n  case 'collecting_boq_images': {\n    if (messageType === 'image') {\n      conv.boq_images.push({ media_id: mediaId, mime_type: mediaMimeType });\n\n      action = 'send_buttons';\n      payload = {\n        to: senderPhone,\n        body: `${conv.boq_images.length} image(s) received. Send more or tap Done.`,\n        buttons: [\n          { id: 'more_images', title: 'Send More' },\n          { id: 'done_images', title: 'Done' },\n        ],\n      };\n    } else if (messageText === 'done_images') {\n      action = 'send_text';\n      payload = {\n        to: senderPhone,\n        text: `${conv.boq_images.length} BOQ image(s) saved.\\n\\nNow please send your Specification file (PDF only).`,\n      };\n      conv.state = 'awaiting_spec';\n    } else if (messageText === 'more_images') {\n      action = 'send_text';\n      payload = {\n        to: senderPhone,\n        text: 'Go ahead, send your next image.',\n      };\n    } else {\n      action = 'send_buttons';\n      payload = {\n        to: senderPhone,\n        body: 'Please send an image or tap Done.',\n        buttons: [\n          { id: 'more_images', title: 'Send More' },\n          { id: 'done_images', title: 'Done' },\n        ],\n      };\n    }\n    break;\n  }\n\n  // ---- AWAITING SPEC ----\n  case 'awaiting_spec': {\n    if (messageType === 'document' &&\n        (mediaMimeType === 'application/pdf' || mediaFileName.endsWith('.pdf'))) {\n      conv.spec_media_id = mediaId;\n      conv.spec_filename = mediaFileName;\n      conv.spec_mime_type = mediaMimeType;\n\n      action = 'send_buttons';\n      payload = {\n        to: senderPhone,\n        body: 'Spec file received.\\n\\nWould you like to provide client details?',\n        buttons: [\n          { id: 'client_yes', title: 'Yes' },\n          { id: 'client_skip', title: 'Skip' },\n        ],\n      };\n      conv.state = 'awaiting_client_choice';\n    } else {\n      action = 'send_text';\n      payload = {\n        to: senderPhone,\n        text: 'Please send a PDF file for the specification.',\n      };\n    }\n    break;\n  }\n\n  // ---- AWAITING CLIENT CHOICE ----\n  case 'awaiting_client_choice': {\n    if (messageText === 'client_yes') {\n      action = 'send_flow';\n      payload = {\n        to: senderPhone,\n        flow_id: CLIENT_FLOW_ID,\n        flow_cta: 'Enter Client Details',\n        body: 'Please fill in the client information.',\n        screen: 'CLIENT_DETAILS',\n      };\n      conv.state = 'awaiting_client_flow';\n    } else if (messageText === 'client_skip') {\n      conv.client_data = {\n        name: 'WhatsApp Client',\n        company_name: 'WhatsApp Client',\n      };\n      action = 'send_buttons';\n      payload = {\n        to: senderPhone,\n        body: 'Client details skipped.\\n\\nWould you like to provide project details?',\n        buttons: [\n          { id: 'project_yes', title: 'Yes' },\n          { id: 'project_skip', title: 'Skip' },\n        ],\n      };\n      conv.state = 'awaiting_project_choice';\n    } else {\n      action = 'send_buttons';\n      payload = {\n        to: senderPhone,\n        body: 'Would you like to provide client details?',\n        buttons: [\n          { id: 'client_yes', title: 'Yes' },\n          { id: 'client_skip', title: 'Skip' },\n        ],\n      };\n    }\n    break;\n  }\n\n  // ---- AWAITING CLIENT FLOW RESPONSE ----\n  case 'awaiting_client_flow': {\n    if (flowResponseData) {\n      conv.client_data = {\n        name: flowResponseData.client_name || 'WhatsApp Client',\n        company_name: flowResponseData.company_name || 'WhatsApp Client',\n        email: flowResponseData.client_email || null,\n        phone: flowResponseData.client_phone || null,\n        address: flowResponseData.client_address || null,\n      };\n      action = 'send_buttons';\n      payload = {\n        to: senderPhone,\n        body: 'Client details saved.\\n\\nWould you like to provide project details?',\n        buttons: [\n          { id: 'project_yes', title: 'Yes' },\n          { id: 'project_skip', title: 'Skip' },\n        ],\n      };\n      conv.state = 'awaiting_project_choice';\n    } else {\n      action = 'send_text';\n      payload = {\n        to: senderPhone,\n        text: 'Please complete the client details form.',\n      };\n    }\n    break;\n  }\n\n  // ---- AWAITING PROJECT CHOICE ----\n  case 'awaiting_project_choice': {\n    if (messageText === 'project_yes') {\n      action = 'send_flow';\n      payload = {\n        to: senderPhone,\n        flow_id: PROJECT_FLOW_ID,\n        flow_cta: 'Enter Project Details',\n        body: 'Please fill in the project information.',\n        screen: 'PROJECT_DETAILS',\n      };\n      conv.state = 'awaiting_project_flow';\n    } else if (messageText === 'project_skip') {\n      const today = new Date().toISOString().split('T')[0];\n      conv.project_data = {\n        project_name: `WhatsApp Project ${Date.now()}`,\n        city: 'Riyadh',\n        country: 'KSA',\n        due_date: today,\n      };\n      action = 'send_flow';\n      payload = {\n        to: senderPhone,\n        flow_id: CONFIG_FLOW_ID,\n        flow_cta: 'Configure Quotation',\n        body: 'Project details skipped.\\n\\nPlease configure your quotation settings.',\n        screen: 'QUOTATION_CONFIG',\n      };\n      conv.state = 'awaiting_config_flow';\n    } else {\n      action = 'send_buttons';\n      payload = {\n        to: senderPhone,\n        body: 'Would you like to provide project details?',\n        buttons: [\n          { id: 'project_yes', title: 'Yes' },\n          { id: 'project_skip', title: 'Skip' },\n        ],\n      };\n    }\n    break;\n  }\n\n  // ---- AWAITING PROJECT FLOW RESPONSE ----\n  case 'awaiting_project_flow': {\n    if (flowResponseData) {\n      conv.project_data = {\n        project_name: flowResponseData.project_name || `WhatsApp Project ${Date.now()}`,\n        city: flowResponseData.city || 'Riyadh',\n        country: flowResponseData.country || 'KSA',\n        due_date: flowResponseData.due_date || new Date().toISOString().split('T')[0],\n      };\n      action = 'send_flow';\n      payload = {\n        to: senderPhone,\n        flow_id: CONFIG_FLOW_ID,\n        flow_cta: 'Configure Quotation',\n        body: 'Project details saved.\\n\\nPlease configure your quotation settings.',\n        screen: 'QUOTATION_CONFIG',\n      };\n      conv.state = 'awaiting_config_flow';\n    } else {\n      action = 'send_text';\n      payload = {\n        to: senderPhone,\n        text: 'Please complete the project details form.',\n      };\n    }\n    break;\n  }\n\n  // ---- AWAITING CONFIG FLOW RESPONSE ----\n  case 'awaiting_config_flow': {\n    if (flowResponseData) {\n      conv.quotation_config = {\n        service_option: parseInt(flowResponseData.service_option) || 1,\n        margin_percent: parseFloat(flowResponseData.margin_percent) || 0,\n        payment_terms_text: flowResponseData.payment_terms || null,\n        subject: flowResponseData.subject || null,\n      };\n      conv.state = 'executing';\n      action = 'execute_pipeline';\n      payload = {\n        senderPhone,\n        conversation: JSON.parse(JSON.stringify(conv)),\n        config: {\n          WHATSAPP_PHONE_NUMBER_ID,\n          WHATSAPP_ACCESS_TOKEN,\n          BACKEND_API_URL,\n          BACKEND_AUTH_TOKEN,\n        },\n      };\n    } else {\n      action = 'send_text';\n      payload = {\n        to: senderPhone,\n        text: 'Please complete the quotation configuration form.',\n      };\n    }\n    break;\n  }\n\n  // ---- EXECUTING (pipeline in progress) ----\n  case 'executing': {\n    action = 'send_text';\n    payload = {\n      to: senderPhone,\n      text: 'Your quotation is still being processed. Please wait...',\n    };\n    break;\n  }\n\n  // ---- DONE ----\n  case 'done': {\n    conv.state = 'awaiting_confirm';\n    action = 'send_buttons';\n    payload = {\n      to: senderPhone,\n      body: 'Would you like to generate another quotation?',\n      buttons: [\n        { id: 'yes', title: 'Yes' },\n        { id: 'no', title: 'No' },\n      ],\n    };\n    break;\n  }\n\n  // ---- DEFAULT: reset to new ----\n  default: {\n    conv.state = 'awaiting_confirm';\n    action = 'send_buttons';\n    payload = {\n      to: senderPhone,\n      body: 'Welcome! Would you like to generate a quotation?',\n      buttons: [\n        { id: 'yes', title: 'Yes' },\n        { id: 'no', title: 'No' },\n      ],\n    };\n    break;\n  }\n}\n\n// Build WhatsApp API body for message-sending actions\nlet whatsappBody = null;\nif (action === 'send_text') {\n  whatsappBody = {\n    messaging_product: 'whatsapp',\n    to: payload.to,\n    type: 'text',\n    text: { body: payload.text },\n  };\n} else if (action === 'send_buttons') {\n  whatsappBody = {\n    messaging_product: 'whatsapp',\n    to: payload.to,\n    type: 'interactive',\n    interactive: {\n      type: 'button',\n      body: { text: payload.body },\n      action: {\n        buttons: payload.buttons.map(b => ({\n          type: 'reply',\n          reply: { id: b.id, title: b.title },\n        })),\n      },\n    },\n  };\n} else if (action === 'send_flow') {\n  whatsappBody = {\n    messaging_product: 'whatsapp',\n    to: payload.to,\n    type: 'interactive',\n    interactive: {\n      type: 'flow',\n      body: { text: payload.body },\n      action: {\n        name: 'flow',\n        parameters: {\n          flow_message_version: '3',\n          flow_id: payload.flow_id,\n          flow_cta: payload.flow_cta,\n          mode: 'published',\n          flow_action: 'navigate',\n          flow_action_payload: {\n            screen: payload.screen,\n          },\n        },\n      },\n    },\n  };\n}\n\nreturn [{\n  json: {\n    action,\n    payload,\n    whatsappBody,\n    whatsappUrl: WA_URL,\n    config: {\n      WHATSAPP_PHONE_NUMBER_ID,\n      WHATSAPP_ACCESS_TOKEN,\n    },\n  }\n}];"
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000006",
+      "name": "State Machine",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [850, 400]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": ""
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "send_text",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "send_text"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": ""
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "send_buttons",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "send_buttons"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": ""
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "send_flow",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "send_flow"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": ""
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "execute_pipeline",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "execute_pipeline"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000007",
+      "name": "Route Action",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1100, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.whatsappUrl }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.config.WHATSAPP_ACCESS_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.whatsappBody) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000008",
+      "name": "Send Text",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1400, 100]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.whatsappUrl }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.config.WHATSAPP_ACCESS_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.whatsappBody) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000009",
+      "name": "Send Buttons",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1400, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.whatsappUrl }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.config.WHATSAPP_ACCESS_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.whatsappBody) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000010",
+      "name": "Send Flow",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1400, 500]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// Node 11: Execute Pipeline\n// Full pipeline: download files, create client/project,\n// upload, run pipeline, poll, send quotation result.\n// ============================================================\n\nconst input = $input.first().json;\nconst { senderPhone, conversation: conv, config } = input.payload;\nconst {\n  WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN,\n  BACKEND_API_URL, BACKEND_AUTH_TOKEN\n} = config;\n\nconst WA_URL = `https://graph.facebook.com/v21.0/${WHATSAPP_PHONE_NUMBER_ID}/messages`;\nconst waHeaders = {\n  'Authorization': `Bearer ${WHATSAPP_ACCESS_TOKEN}`,\n  'Content-Type': 'application/json',\n};\nconst apiHeaders = {\n  'Authorization': `Bearer ${BACKEND_AUTH_TOKEN}`,\n  'Content-Type': 'application/json',\n};\n\n// ---------- helpers ----------\n\nasync function sendText(text) {\n  await fetch(WA_URL, {\n    method: 'POST',\n    headers: waHeaders,\n    body: JSON.stringify({\n      messaging_product: 'whatsapp',\n      to: senderPhone,\n      type: 'text',\n      text: { body: text },\n    }),\n  });\n}\n\nasync function sendDocument(url, filename, caption) {\n  await fetch(WA_URL, {\n    method: 'POST',\n    headers: waHeaders,\n    body: JSON.stringify({\n      messaging_product: 'whatsapp',\n      to: senderPhone,\n      type: 'document',\n      document: { link: url, filename: filename, caption: caption },\n    }),\n  });\n}\n\nasync function downloadMedia(mediaId) {\n  // Step 1: get media URL\n  const metaResp = await fetch(\n    `https://graph.facebook.com/v21.0/${mediaId}`,\n    { headers: { 'Authorization': `Bearer ${WHATSAPP_ACCESS_TOKEN}` } }\n  );\n  if (!metaResp.ok) throw new Error(`Media metadata failed: ${metaResp.status}`);\n  const meta = await metaResp.json();\n\n  // Step 2: download binary\n  const fileResp = await fetch(meta.url, {\n    headers: { 'Authorization': `Bearer ${WHATSAPP_ACCESS_TOKEN}` },\n  });\n  if (!fileResp.ok) throw new Error(`Media download failed: ${fileResp.status}`);\n  return Buffer.from(await fileResp.arrayBuffer());\n}\n\nasync function uploadFile(url, fieldName, buf, filename, mimeType) {\n  const boundary = '----n8nBoundary' + Date.now();\n  const body = Buffer.concat([\n    Buffer.from(\n      `--${boundary}\\r\\n` +\n      `Content-Disposition: form-data; name=\"${fieldName}\"; filename=\"${filename}\"\\r\\n` +\n      `Content-Type: ${mimeType}\\r\\n\\r\\n`\n    ),\n    buf,\n    Buffer.from(`\\r\\n--${boundary}--\\r\\n`),\n  ]);\n  const resp = await fetch(url, {\n    method: 'POST',\n    headers: {\n      'Authorization': `Bearer ${BACKEND_AUTH_TOKEN}`,\n      'Content-Type': `multipart/form-data; boundary=${boundary}`,\n    },\n    body,\n  });\n  if (!resp.ok) throw new Error(`Upload to ${url} failed: ${await resp.text()}`);\n  return resp.json();\n}\n\nasync function uploadImages(url, buffers) {\n  const boundary = '----n8nBoundary' + Date.now();\n  const parts = [];\n  for (let i = 0; i < buffers.length; i++) {\n    const { buffer, mimeType } = buffers[i];\n    const ext = mimeType.includes('png') ? 'png' : 'jpg';\n    parts.push(Buffer.from(\n      `--${boundary}\\r\\n` +\n      `Content-Disposition: form-data; name=\"files\"; filename=\"boq_image_${i + 1}.${ext}\"\\r\\n` +\n      `Content-Type: ${mimeType}\\r\\n\\r\\n`\n    ));\n    parts.push(buffer);\n    parts.push(Buffer.from('\\r\\n'));\n  }\n  parts.push(Buffer.from(`--${boundary}--\\r\\n`));\n  const body = Buffer.concat(parts);\n  const resp = await fetch(url, {\n    method: 'POST',\n    headers: {\n      'Authorization': `Bearer ${BACKEND_AUTH_TOKEN}`,\n      'Content-Type': `multipart/form-data; boundary=${boundary}`,\n    },\n    body,\n  });\n  if (!resp.ok) throw new Error(`Image upload failed: ${await resp.text()}`);\n  return resp.json();\n}\n\nasync function sleep(ms) {\n  return new Promise(resolve => setTimeout(resolve, ms));\n}\n\n// ---------- main pipeline ----------\n\ntry {\n  // 1. Notify user\n  await sendText('Processing your quotation... This may take a few minutes.');\n\n  // 2. Create client\n  const clientResp = await fetch(`${BACKEND_API_URL}/clients`, {\n    method: 'POST',\n    headers: apiHeaders,\n    body: JSON.stringify(conv.client_data),\n  });\n  if (!clientResp.ok) throw new Error(`Create client failed: ${await clientResp.text()}`);\n  const client = await clientResp.json();\n  const clientId = client.id;\n\n  // 3. Create project\n  const projectBody = {\n    project_name: conv.project_data.project_name,\n    client_id: clientId,\n    city: conv.project_data.city,\n    country: conv.project_data.country,\n    due_date: conv.project_data.due_date,\n  };\n  const projectResp = await fetch(`${BACKEND_API_URL}/projects`, {\n    method: 'POST',\n    headers: apiHeaders,\n    body: JSON.stringify(projectBody),\n  });\n  if (!projectResp.ok) throw new Error(`Create project failed: ${await projectResp.text()}`);\n  const project = await projectResp.json();\n  const projectId = project.id;\n\n  await sendText('Client and project created. Uploading files...');\n\n  // 4. Download & upload BOQ\n  if (conv.boq_media_type === 'images') {\n    const imageBuffers = [];\n    for (const img of conv.boq_images) {\n      const buf = await downloadMedia(img.media_id);\n      imageBuffers.push({ buffer: buf, mimeType: img.mime_type });\n    }\n    await uploadImages(\n      `${BACKEND_API_URL}/projects/${projectId}/boq/upload-images`,\n      imageBuffers\n    );\n  } else {\n    const boqBuf = await downloadMedia(conv.boq_media_id);\n    const endpoint = conv.boq_media_type === 'pdf' ? 'upload-pdf' : 'upload';\n    const filename = conv.boq_filename ||\n      (conv.boq_media_type === 'pdf' ? 'boq.pdf' : 'boq.xlsx');\n    const mimeType = conv.boq_mime_type ||\n      (conv.boq_media_type === 'pdf'\n        ? 'application/pdf'\n        : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');\n    await uploadFile(\n      `${BACKEND_API_URL}/projects/${projectId}/boq/${endpoint}`,\n      'file', boqBuf, filename, mimeType\n    );\n  }\n\n  // 5. Download & upload spec\n  const specBuf = await downloadMedia(conv.spec_media_id);\n  await uploadFile(\n    `${BACKEND_API_URL}/projects/${projectId}/spec/upload`,\n    'file', specBuf,\n    conv.spec_filename || 'specification.pdf',\n    'application/pdf'\n  );\n\n  await sendText('Files uploaded. Configuring quotation...');\n\n  // 6. Save quotation config\n  const qcBody = {\n    client_name: conv.client_data.name,\n    client_address: conv.client_data.address || conv.client_data.company_name,\n    subject: conv.quotation_config.subject,\n    service_option: conv.quotation_config.service_option,\n    margin_percent: conv.quotation_config.margin_percent,\n    payment_terms_text: conv.quotation_config.payment_terms_text,\n    inclusion_answers: {},\n  };\n  const cfgResp = await fetch(\n    `${BACKEND_API_URL}/projects/${projectId}/pipeline/quotation-config`,\n    { method: 'POST', headers: apiHeaders, body: JSON.stringify(qcBody) }\n  );\n  if (!cfgResp.ok) throw new Error(`Save config failed: ${await cfgResp.text()}`);\n\n  // 7. Start pipeline\n  const runResp = await fetch(\n    `${BACKEND_API_URL}/projects/${projectId}/pipeline/run`,\n    { method: 'POST', headers: apiHeaders }\n  );\n  if (!runResp.ok) throw new Error(`Start pipeline failed: ${await runResp.text()}`);\n\n  await sendText('Pipeline started. Generating quotation...');\n\n  // 8. Poll status (every 15 s, max 60 attempts = 15 min)\n  let status = 'running';\n  let attempts = 0;\n  const MAX = 60;\n  while (status === 'running' && attempts < MAX) {\n    await sleep(15000);\n    const sResp = await fetch(\n      `${BACKEND_API_URL}/projects/${projectId}/pipeline/status`,\n      { headers: { 'Authorization': `Bearer ${BACKEND_AUTH_TOKEN}` } }\n    );\n    if (!sResp.ok) throw new Error(`Status poll failed: ${sResp.status}`);\n    const sData = await sResp.json();\n    status = sData.status;\n    attempts++;\n\n    if (status === 'failed') {\n      throw new Error(\n        `Pipeline failed at step \"${sData.error_step}\": ${sData.error_message}`\n      );\n    }\n  }\n  if (status !== 'completed') {\n    throw new Error('Pipeline timed out after 15 minutes.');\n  }\n\n  // 9. Get download URL\n  const dlResp = await fetch(\n    `${BACKEND_API_URL}/projects/${projectId}/quotation/download?format=docx`,\n    { headers: { 'Authorization': `Bearer ${BACKEND_AUTH_TOKEN}` } }\n  );\n  if (!dlResp.ok) throw new Error(`Download URL failed: ${await dlResp.text()}`);\n  const dlData = await dlResp.json();\n\n  // 10. Send document to user\n  await sendDocument(dlData.url, dlData.file_name, 'Your quotation is ready!');\n  await sendText(\n    'Your quotation has been generated successfully!\\n' +\n    'Send any message to start a new one.'\n  );\n\n  // 11. Reset conversation\n  const globalData = $getWorkflowStaticData('global');\n  if (globalData.conversations?.[senderPhone]) {\n    globalData.conversations[senderPhone] = { state: 'new' };\n  }\n\n  return [{ json: { success: true, projectId } }];\n\n} catch (error) {\n  await sendText(\n    'Sorry, something went wrong while generating your quotation.\\n\\n' +\n    `Error: ${error.message}\\n\\nPlease try again.`\n  );\n\n  // Reset conversation\n  const globalData = $getWorkflowStaticData('global');\n  if (globalData.conversations?.[senderPhone]) {\n    globalData.conversations[senderPhone] = { state: 'new' };\n  }\n\n  return [{ json: { success: false, error: error.message } }];\n}"
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000011",
+      "name": "Execute Pipeline",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1400, 700]
+    },
+    {
+      "parameters": {
+        "content": "## Setup Instructions\n\n### 1. Meta WhatsApp Configuration\n1. Create a Meta Business app at https://developers.facebook.com\n2. Add the WhatsApp product\n3. Get your **Phone Number ID** and **Access Token**\n4. Set the webhook URL to: `https://<your-n8n-domain>/webhook/whatsapp-quotation`\n5. Subscribe to `messages` webhook field\n6. Set a Verify Token and ensure the GET webhook can respond with `hub.challenge`\n\n### 2. WhatsApp Flows\n1. Upload the 3 Flow JSONs from `n8n/whatsapp-flows/` to Meta Business Suite\n2. Get the Flow IDs for each: client-details, project-details, quotation-config\n3. Publish the flows\n\n### 3. Configuration Variables\nEdit the **State Machine** and **Execute Pipeline** Code nodes.\nReplace these placeholders at the top of each:\n\n| Variable | Where to find it |\n|----------|------------------|\n| `WHATSAPP_PHONE_NUMBER_ID` | Meta Developer Console > WhatsApp > API Setup |\n| `WHATSAPP_ACCESS_TOKEN` | Meta Developer Console > WhatsApp > API Setup |\n| `BACKEND_API_URL` | Your tenant API base URL, e.g. `https://acme.amprosystem.com/api` |\n| `BACKEND_AUTH_TOKEN` | Bearer token from login (`POST /api/auth/login`) |\n| `CLIENT_FLOW_ID` | Meta Business Suite > WhatsApp Flows |\n| `PROJECT_FLOW_ID` | Meta Business Suite > WhatsApp Flows |\n| `CONFIG_FLOW_ID` | Meta Business Suite > WhatsApp Flows |\n\n### 4. n8n Settings\n- Ensure execution timeout is >= 20 min (for pipeline polling)\n- In Settings > Workflow: set `executionTimeout` to 1200 seconds\n\n### 5. Notes\n- Conversation state is stored in workflow static data (persists across executions, lost on n8n restart)\n- Pipeline polling interval: 15 seconds, max 60 attempts (15 min timeout)\n- The bot resets conversation state after completion or error",
+        "width": 560,
+        "height": 620
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000012",
+      "name": "Config Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [100, 700]
+    },
+    {
+      "parameters": {
+        "content": "## Backend API Reference\n\nAll endpoints require `Authorization: Bearer <token>` header.\nRequests must go to the tenant subdomain (e.g. `acme.amprosystem.com`).\n\n### Endpoints Used\n\n| Step | Method | Endpoint | Body |\n|------|--------|----------|------|\n| Create Client | `POST` | `/api/clients` | `{ name, company_name, email?, phone?, address? }` |\n| Create Project | `POST` | `/api/projects` | `{ project_name, client_id, city, country, due_date }` |\n| Upload BOQ (xlsx) | `POST` | `/api/projects/{id}/boq/upload` | multipart `file` |\n| Upload BOQ (pdf) | `POST` | `/api/projects/{id}/boq/upload-pdf` | multipart `file` |\n| Upload BOQ (images) | `POST` | `/api/projects/{id}/boq/upload-images` | multipart `files` (multiple) |\n| Upload Spec | `POST` | `/api/projects/{id}/spec/upload` | multipart `file` |\n| Quotation Config | `POST` | `/api/projects/{id}/pipeline/quotation-config` | `{ client_name, client_address, subject?, service_option, margin_percent, payment_terms_text?, inclusion_answers }` |\n| Run Pipeline | `POST` | `/api/projects/{id}/pipeline/run` | (empty) |\n| Poll Status | `GET` | `/api/projects/{id}/pipeline/status` | — |\n| Download URL | `GET` | `/api/projects/{id}/quotation/download?format=docx` | — |\n\n### Pipeline Status Values\n- `running` — in progress\n- `completed` — done, can download quotation\n- `failed` — check `error_step` and `error_message`\n\n### Conversation States\n`new` → `awaiting_confirm` → `awaiting_boq` → `collecting_boq_images` → `awaiting_spec` → `awaiting_client_choice` → `awaiting_client_flow` → `awaiting_project_choice` → `awaiting_project_flow` → `awaiting_config_flow` → `executing` → `done`",
+        "width": 620,
+        "height": 540
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000013",
+      "name": "API Reference",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [700, 700]
+    }
+  ],
+  "connections": {
+    "Verify Webhook (GET)": {
+      "main": [
+        [
+          {
+            "node": "Return Challenge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WhatsApp Webhook (POST)": {
+      "main": [
+        [
+          {
+            "node": "Acknowledge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Acknowledge": {
+      "main": [
+        [
+          {
+            "node": "Parse Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Message": {
+      "main": [
+        [
+          {
+            "node": "State Machine",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "State Machine": {
+      "main": [
+        [
+          {
+            "node": "Route Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Action": {
+      "main": [
+        [
+          {
+            "node": "Send Text",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Buttons",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Flow",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Execute Pipeline",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionTimeout": 1200,
+    "saveManualExecutions": true,
+    "saveExecutionProgress": true
+  },
+  "versionId": "1",
+  "meta": {
+    "instanceId": "whatsapp-quotation-bot"
+  },
+  "tags": [
+    {
+      "name": "WhatsApp"
+    },
+    {
+      "name": "Quotation"
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+# WAHA WhatsApp gateway for n8n quotation bot
+# Usage: docker compose -f n8n-waha/docker-compose.waha.yml up -d
+
+services:
+  waha:
+    image: devlikeapro/waha:noweb-arm
+    container_name: waha
+    restart: unless-stopped
+    ports:
+      - "3002:3000"
+    environment:
+      - WHATSAPP_DEFAULT_ENGINE=NOWEB
+      - WAHA_API_KEY=B6D711FCDE4D4FD5936544120E713976
+      - WAHA_DASHBOARD_USERNAME=admin
+      - WAHA_DASHBOARD_PASSWORD=RAGM-WAHA-Dashboard-2026
+      - WAHA_PRINT_QR=true
+    volumes:
+      - waha_sessions:/app/.sessions
+
+volumes:
+  waha_sessions:

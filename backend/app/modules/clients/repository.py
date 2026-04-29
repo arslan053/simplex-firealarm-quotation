@@ -98,6 +98,18 @@ class ClientRepository:
         )
         return list(result.scalars().all())
 
+    async def find_by_company_name(
+        self,
+        tenant_id: uuid.UUID,
+        company_name: str,
+    ) -> Client | None:
+        result = await self.db.execute(
+            select(Client).where(
+                and_(Client.tenant_id == tenant_id, Client.company_name == company_name)
+            )
+        )
+        return result.scalar_one_or_none()
+
     async def check_unique_company(
         self,
         tenant_id: uuid.UUID,

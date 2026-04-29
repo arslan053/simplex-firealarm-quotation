@@ -1,0 +1,72 @@
+{
+  "version": "3.1",
+  "screens": [
+    {
+      "id": "PROJECT_DETAILS",
+      "title": "Project Details",
+      "terminal": true,
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextHeading",
+            "text": "Enter your project information"
+          },
+          {
+            "type": "TextInput",
+            "label": "Project Name",
+            "name": "project_name",
+            "required": true,
+            "input-type": "text"
+          },
+          {
+            "type": "TextInput",
+            "label": "City",
+            "name": "city",
+            "required": true,
+            "input-type": "text"
+          },
+          {
+            "type": "Dropdown",
+            "label": "Country",
+            "name": "country",
+            "required": true,
+            "init-value": "KSA",
+            "data-source": [
+              { "id": "KSA", "title": "KSA" },
+              { "id": "UAE", "title": "UAE" },
+              { "id": "Bahrain", "title": "Bahrain" },
+              { "id": "Kuwait", "title": "Kuwait" },
+              { "id": "Oman", "title": "Oman" },
+              { "id": "Qatar", "title": "Qatar" },
+              { "id": "Jordan", "title": "Jordan" },
+              { "id": "Egypt", "title": "Egypt" },
+              { "id": "Iraq", "title": "Iraq" },
+              { "id": "Lebanon", "title": "Lebanon" },
+              { "id": "Saudi Arabia", "title": "Saudi Arabia" }
+            ]
+          },
+          {
+            "type": "DatePicker",
+            "label": "Due Date",
+            "name": "due_date",
+            "required": true
+          },
+          {
+            "type": "Footer",
+            "label": "Submit",
+            "on-click-action": {
+              "name": "complete",
+              "payload": {
+                "project_name": "${form.project_name}",
+                "city": "${form.city}",
+                "country": "${form.country}",
+                "due_date": "${form.due_date}"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

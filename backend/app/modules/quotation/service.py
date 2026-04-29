@@ -389,6 +389,30 @@ class QuotationService:
         url = get_file_url(object_key, tenant_id=str(tenant_id))
         return QuotationDownloadResponse(url=url, file_name=file_name)
 
+    async def get_file_bytes(
+        self, tenant_id: uuid.UUID, project_id: uuid.UUID, fmt: str = "docx"
+    ) -> tuple[bytes, str] | None:
+        result = await self.db.execute(
+            text("""
+                SELECT object_key, original_file_name
+                FROM quotations
+                WHERE tenant_id = :tid AND project_id = :pid
+            """),
+            {"tid": tenant_id, "pid": project_id},
+        )
+        row = result.fetchone()
+        if not row:
+            return None
+
+        object_key = row[0]
+        file_name = row[1]
+        if fmt == "xlsx":
+            object_key = object_key.rsplit(".", 1)[0] + ".xlsx"
+            file_name = file_name.rsplit(".", 1)[0] + ".xlsx"
+
+        data = get_file_bytes(object_key)
+        return data, file_name
+
     async def get_preview_pdf(
         self, tenant_id: uuid.UUID, project_id: uuid.UUID
     ) -> bytes | None:

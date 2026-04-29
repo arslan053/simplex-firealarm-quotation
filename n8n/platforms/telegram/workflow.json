@@ -1,0 +1,283 @@
+{
+  "name": "Telegram Quotation Mini App",
+  "id": "telegram-quotation-miniapp",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "telegram-quotation-bot",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "tg-webhook-001",
+      "name": "Telegram Bot Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -900,
+        -260
+      ],
+      "webhookId": "telegram-quotation-bot"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\nconst msg = body.message || body.edited_message || body.callback_query?.message || null;\nif (!msg) return [{ json: { route: 'ignore' } }];\nconst chatId = msg.chat?.id;\nconst userId = body.message?.from?.id || body.callback_query?.from?.id || msg.from?.id || null;\nconst text = String(body.message?.text || '').trim().toLowerCase();\nif (!chatId) return [{ json: { route: 'ignore' } }];\nreturn [{ json: { route: 'send_start', chat_id: chatId, user_id: userId, first_name: body.message?.from?.first_name || '', text } }];"
+      },
+      "id": "tg-parse-002",
+      "name": "Parse Telegram Update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -660,
+        -260
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "noData",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "tg-ack-003",
+      "name": "Acknowledge Telegram",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -420,
+        -260
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const https = require('https');\nconst BOT_TOKEN = '8637052965:AAGr7oq2hfzJ2_gqL5IcUPV9mxxSlUKEozw';\nconst MINI_APP_URL = 'https://n8n.amprosystem.com/webhook/telegram-mini-app';\nfunction parseUrl(s) {\n  const m = String(s || '').match(/^(https?):\\/\\/([^\\/:]+)(?::(\\d+))?(\\/.*)?$/);\n  if (!m) throw new Error('Invalid URL: ' + s);\n  return { protocol: m[1] + ':', hostname: m[2], port: m[3] || 443, path: m[4] || '/' };\n}\nfunction postJson(url, payload) {\n  return new Promise((resolve, reject) => {\n    const body = Buffer.from(JSON.stringify(payload));\n    const u = parseUrl(url);\n    const req = https.request({ hostname: u.hostname, port: u.port, path: u.path, method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': String(body.length) } }, res => {\n      const chunks = [];\n      res.on('data', c => chunks.push(c));\n      res.on('end', () => {\n        const text = Buffer.concat(chunks).toString();\n        if (res.statusCode >= 400) return reject(new Error('Telegram HTTP ' + res.statusCode + ': ' + text));\n        try { resolve(JSON.parse(text)); } catch { resolve(text); }\n      });\n    });\n    req.on('error', reject);\n    req.write(body);\n    req.end();\n  });\n}\nconst input = $input.first().json;\nif (input.route !== 'send_start') return [{ json: { skipped: true } }];\nconst url = MINI_APP_URL + '?chat_id=' + encodeURIComponent(input.chat_id) + '&user_id=' + encodeURIComponent(input.user_id || '');\nconst resp = await postJson('https://api.telegram.org/bot' + BOT_TOKEN + '/sendMessage', {\n  chat_id: input.chat_id,\n  text: 'Welcome to Simplex Quotation Generator. Open the secure Telegram Mini App to enter quotation details and upload the BOQ and specification files.',\n  reply_markup: { inline_keyboard: [[{ text: 'Create Quotation', web_app: { url } }]] },\n});\nreturn [{ json: { sent: true, telegram: resp } }];"
+      },
+      "id": "tg-send-start-004",
+      "name": "Send Mini App Button",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -180,
+        -260
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "telegram-mini-app",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "tg-miniapp-get-005",
+      "name": "Mini App Page",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -900,
+        120
+      ],
+      "webhookId": "telegram-mini-app"
+    },
+    {
+      "parameters": {
+        "jsCode": "const submitUrl = 'https://n8n.amprosystem.com/webhook/telegram-mini-app-submit';\nconst html = \"<!doctype html>\\n<html lang=\\\"en\\\">\\n<head>\\n<meta charset=\\\"utf-8\\\" />\\n<meta name=\\\"viewport\\\" content=\\\"width=device-width, initial-scale=1\\\" />\\n<title>Quotation Request</title>\\n<script src=\\\"https://telegram.org/js/telegram-web-app.js\\\"></script>\\n<style>\\n:root{color-scheme:light;--bg:#f5f7fb;--panel:#fff;--text:#111827;--muted:#6b7280;--line:#d9dee8;--accent:#2563eb;--danger:#b42318}*{box-sizing:border-box}body{margin:0;font-family:Inter,Arial,sans-serif;background:var(--bg);color:var(--text)}.wrap{max-width:760px;margin:0 auto;padding:18px 14px 28px}h1{font-size:22px;margin:6px 0 6px;letter-spacing:0}p{margin:0 0 14px;color:var(--muted);font-size:14px;line-height:1.45}form{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px;box-shadow:0 6px 20px rgba(17,24,39,.06)}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.full{grid-column:1/-1}label{display:block;font-size:13px;font-weight:650;margin-bottom:6px}input,select,textarea{width:100%;border:1px solid var(--line);border-radius:7px;min-height:42px;padding:10px 11px;font-size:14px;background:#fff;color:var(--text)}textarea{min-height:82px;resize:vertical}h2{grid-column:1/-1;font-size:15px;margin:14px 0 0;padding-top:14px;border-top:1px solid var(--line)}.first{margin-top:0;padding-top:0;border-top:0}button{width:100%;height:48px;border:0;border-radius:7px;background:var(--accent);color:white;font-size:15px;font-weight:700;cursor:pointer}.status{min-height:22px;margin-top:12px;font-size:14px;color:var(--muted)}.status.err{color:var(--danger)}.status.ok{color:#067647}@media(max-width:640px){.grid{grid-template-columns:1fr}.wrap{padding:14px 10px 22px}form{padding:14px}}\\n</style>\\n</head>\\n<body><div class=\\\"wrap\\\"><h1>Quotation Request</h1><p>Enter the required details and upload the BOQ and specification files. The generated DOCX will be sent back in this Telegram chat.</p><form id=\\\"quotationForm\\\"><div class=\\\"grid\\\">\\n<h2 class=\\\"first\\\">Client details</h2><div><label>Client name</label><input name=\\\"client_name\\\" required maxlength=\\\"120\\\" /></div><div><label>Company name</label><input name=\\\"company_name\\\" required maxlength=\\\"160\\\" /></div><div><label>Email</label><input name=\\\"email\\\" type=\\\"email\\\" /></div><div><label>Phone</label><input name=\\\"phone\\\" maxlength=\\\"40\\\" /></div><div class=\\\"full\\\"><label>Address</label><input name=\\\"address\\\" maxlength=\\\"220\\\" /></div>\\n<h2>Project details</h2><div class=\\\"full\\\"><label>Project name</label><input name=\\\"project_name\\\" required maxlength=\\\"180\\\" /></div><div><label>City</label><input name=\\\"city\\\" required value=\\\"Riyadh\\\" maxlength=\\\"100\\\" /></div><div><label>Country</label><input name=\\\"country\\\" required value=\\\"KSA\\\" maxlength=\\\"100\\\" /></div><div><label>Due date</label><input name=\\\"due_date\\\" required type=\\\"date\\\" /></div><div></div>\\n<h2>Quotation details</h2><div><label>Service option</label><select name=\\\"service_option\\\" required><option value=\\\"1\\\">Supply Only</option><option value=\\\"2\\\" selected>Supply & Install</option><option value=\\\"3\\\">Supply, Install & Commission</option></select></div><div><label>Margin percent</label><input name=\\\"margin_percent\\\" required type=\\\"number\\\" min=\\\"0\\\" max=\\\"100\\\" step=\\\"0.01\\\" value=\\\"0\\\" /></div><div class=\\\"full\\\"><label>Payment terms</label><textarea name=\\\"payment_terms_text\\\" maxlength=\\\"1200\\\"></textarea></div><div class=\\\"full\\\"><label>Quotation subject</label><input name=\\\"subject\\\" maxlength=\\\"180\\\" /></div>\\n<h2>Files</h2><div><label>BOQ file</label><input name=\\\"boq_file\\\" required type=\\\"file\\\" accept=\\\".xlsx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\\\" /></div><div><label>Specification PDF</label><input name=\\\"spec_file\\\" required type=\\\"file\\\" accept=\\\".pdf,application/pdf\\\" /></div></div><input type=\\\"hidden\\\" name=\\\"chat_id\\\" id=\\\"chat_id\\\" /><input type=\\\"hidden\\\" name=\\\"user_id\\\" id=\\\"user_id\\\" /><input type=\\\"hidden\\\" name=\\\"init_data\\\" id=\\\"init_data\\\" /><div style=\\\"height:16px\\\"></div><button id=\\\"submitBtn\\\" type=\\\"submit\\\">Generate quotation</button><div id=\\\"status\\\" class=\\\"status\\\"></div></form></div>\\n<script>\\nconst submitUrl='__SUBMIT_URL__'; const tg=window.Telegram&&window.Telegram.WebApp?window.Telegram.WebApp:null; if(tg){tg.ready();tg.expand()} const params=new URLSearchParams(location.search); document.getElementById('chat_id').value=params.get('chat_id')||(tg&&tg.initDataUnsafe&&tg.initDataUnsafe.chat?tg.initDataUnsafe.chat.id:'')||(tg&&tg.initDataUnsafe&&tg.initDataUnsafe.user?tg.initDataUnsafe.user.id:'')||''; document.getElementById('user_id').value=params.get('user_id')||(tg&&tg.initDataUnsafe&&tg.initDataUnsafe.user?tg.initDataUnsafe.user.id:'')||''; document.getElementById('init_data').value=tg?tg.initData:''; const form=document.getElementById('quotationForm'),status=document.getElementById('status'),btn=document.getElementById('submitBtn'); form.elements.due_date.value=new Date().toISOString().slice(0,10); form.addEventListener('submit',async(e)=>{e.preventDefault();status.className='status';status.textContent=''; if(!form.elements.chat_id.value){status.className='status err';status.textContent='Missing Telegram chat context. Please reopen this form from the bot.';return} const margin=Number(form.elements.margin_percent.value); if(!Number.isFinite(margin)||margin<0||margin>100){status.className='status err';status.textContent='Margin must be between 0 and 100.';return} const boq=form.elements.boq_file.files[0],spec=form.elements.spec_file.files[0]; if(!boq||!spec){status.className='status err';status.textContent='Please upload both BOQ and specification files.';return} if(!/.pdf$/i.test(spec.name)){status.className='status err';status.textContent='Specification must be a PDF file.';return} btn.disabled=true;btn.textContent='Submitting...'; try{const res=await fetch(submitUrl,{method:'POST',body:new FormData(form)}); const data=await res.json().catch(()=>({})); if(!res.ok||data.ok===false)throw new Error(data.error||'Submission failed'); status.className='status ok'; status.textContent='Details submitted successfully. Your quotation is being generated and we will send the DOCX file here shortly.';}catch(err){status.className='status err';status.textContent=err.message||'Could not submit the request.';btn.disabled=false;btn.textContent='Generate quotation'}});\\n</script></body></html>\".replace('__SUBMIT_URL__', submitUrl);\nreturn [{ json: { html } }];"
+      },
+      "id": "tg-miniapp-html-006",
+      "name": "Render Mini App HTML",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -660,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.html }}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html; charset=utf-8"
+              }
+            ]
+          }
+        }
+      },
+      "id": "tg-miniapp-respond-007",
+      "name": "Return Mini App HTML",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -420,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "telegram-mini-app-submit",
+        "responseMode": "responseNode",
+        "options": {
+          "binaryPropertyName": "data"
+        }
+      },
+      "id": "tg-submit-webhook-008",
+      "name": "Mini App Submit",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -900,
+        500
+      ],
+      "webhookId": "telegram-mini-app-submit"
+    },
+    {
+      "parameters": {
+        "jsCode": "const http = require('http');\nconst https = require('https');\nconst BOT_TOKEN = '8637052965:AAGr7oq2hfzJ2_gqL5IcUPV9mxxSlUKEozw';\nconst BACKEND_API_URL = 'http://172.17.0.1:3001';\nconst TENANT_SLUG = 'acme';\nconst LOGIN_EMAIL = 'admin@acme.com';\nconst LOGIN_PASSWORD = 'admin123';\nconst CALLBACK_ROUTER_URL = 'http://172.17.0.1:5678/webhook/pipeline-callback-router';\nfunction parseUrl(s) {\n  const m = String(s || '').match(/^(https?):\\/\\/([^\\/:]+)(?::(\\d+))?(\\/.*)?$/);\n  if (!m) return { protocol: 'http:', hostname: s, port: null, path: '/' };\n  return { protocol: m[1] + ':', hostname: m[2], port: m[3] || null, path: m[4] || '/' };\n}\nfunction requestRaw(method, url, headers, body, timeoutMs = 120000) {\n  return new Promise((resolve, reject) => {\n    const p = parseUrl(url);\n    const lib = p.protocol === 'https:' ? https : http;\n    const req = lib.request({ hostname: p.hostname, port: p.port, path: p.path, method, headers: headers || {} }, res => {\n      const chunks = [];\n      res.on('data', c => chunks.push(c));\n      res.on('end', () => {\n        const text = Buffer.concat(chunks).toString();\n        if (res.statusCode >= 400) return reject(new Error('HTTP ' + res.statusCode + ': ' + text));\n        try { resolve(JSON.parse(text)); } catch { resolve(text); }\n      });\n    });\n    req.on('error', reject);\n    req.setTimeout(timeoutMs, () => { req.destroy(); reject(new Error('HTTP timeout')); });\n    if (body) req.write(body);\n    req.end();\n  });\n}\nfunction clean(v) { return String(v ?? '').trim(); }\nfunction serviceValue(v) { const n = Number(v); return [1, 2, 3].includes(n) ? n : 2; }\nfunction pickBinary(binary, wanted, re) {\n  if (binary[wanted]) return { key: wanted, value: binary[wanted] };\n  const key = Object.keys(binary).find(k => re.test(k) || re.test(binary[k]?.fileName || '') || re.test(binary[k]?.mimeType || ''));\n  return key ? { key, value: binary[key] } : null;\n}\nfunction field(boundary, name, value) {\n  const CRLF = '\\r\\n';\n  return Buffer.from('--' + boundary + CRLF + 'Content-Disposition: form-data; name=\"' + name + '\"' + CRLF + CRLF + String(value ?? '') + CRLF);\n}\nfunction file(boundary, name, filename, contentType, data) {\n  const CRLF = '\\r\\n';\n  return [Buffer.from('--' + boundary + CRLF + 'Content-Disposition: form-data; name=\"' + name + '\"; filename=\"' + filename + '\"' + CRLF + 'Content-Type: ' + contentType + CRLF + CRLF), data, Buffer.from(CRLF)];\n}\nasync function sendTelegramMessage(chatId, text) {\n  const body = Buffer.from(JSON.stringify({ chat_id: chatId, text }));\n  return requestRaw('POST', 'https://api.telegram.org/bot' + BOT_TOKEN + '/sendMessage', { 'Content-Type': 'application/json', 'Content-Length': String(body.length) }, body, 30000);\n}\ntry {\nconst item = $input.first();\nconst body = item.json.body || item.json || {};\nconst binary = item.binary || {};\nconst chatId = clean(body.chat_id);\nif (!chatId) throw new Error('Missing Telegram chat_id');\nconst boqPicked = pickBinary(binary, 'boq_file', /boq|xlsx|spreadsheet|pdf/i);\nconst specPicked = pickBinary(binary, 'spec_file', /spec|pdf/i);\nif (!boqPicked) throw new Error('Missing BOQ file upload');\nif (!specPicked) throw new Error('Missing specification PDF upload');\nconst boqBuf = await this.helpers.getBinaryDataBuffer(0, boqPicked.key);\nconst specBuf = await this.helpers.getBinaryDataBuffer(0, specPicked.key);\nconst boq = boqPicked.value;\nconst spec = specPicked.value;\nconst boqName = boq.fileName || 'boq.xlsx';\nconst specName = spec.fileName || 'specification.pdf';\nconst boqMediaType = boqName.toLowerCase().endsWith('.pdf') || boq.mimeType === 'application/pdf' ? 'pdf' : 'xlsx';\nconst margin = Number(body.margin_percent || 0);\nif (!Number.isFinite(margin) || margin < 0 || margin > 100) throw new Error('Margin must be between 0 and 100');\nconst backendUrl = BACKEND_API_URL.replace(/\\/$/, '');\nconst loginBody = Buffer.from(JSON.stringify({ email: LOGIN_EMAIL, password: LOGIN_PASSWORD }));\nconst loginResp = await requestRaw('POST', backendUrl + '/api/auth/login', { 'Content-Type': 'application/json', 'Content-Length': String(loginBody.length), 'x-tenant-slug': TENANT_SLUG }, loginBody, 30000);\nif (!loginResp.access_token) throw new Error('Backend login failed');\nconst replyInfo = { chat_id: chatId, user_id: clean(body.user_id) || null, bot_token: BOT_TOKEN };\nconst clientData = { name: clean(body.client_name), company_name: clean(body.company_name), email: clean(body.email) || null, phone: clean(body.phone) || null, address: clean(body.address) || null };\nconst projectData = { project_name: clean(body.project_name), city: clean(body.city), country: clean(body.country), due_date: clean(body.due_date) };\nconst quotationConfig = { service_option: serviceValue(body.service_option), margin_percent: margin, payment_terms_text: clean(body.payment_terms_text) || null, subject: clean(body.subject) || null };\nconst boundary = '----n8nTelegram' + Date.now();\nconst parts = [];\nparts.push(...file(boundary, 'boq_file', boqName, boq.mimeType || 'application/octet-stream', boqBuf));\nparts.push(...file(boundary, 'spec_file', specName, spec.mimeType || 'application/pdf', specBuf));\nparts.push(field(boundary, 'source_platform', 'telegram'));\nparts.push(field(boundary, 'platform_reply_info', JSON.stringify(replyInfo)));\nparts.push(field(boundary, 'client_data', JSON.stringify(clientData)));\nparts.push(field(boundary, 'project_data', JSON.stringify(projectData)));\nparts.push(field(boundary, 'quotation_config', JSON.stringify(quotationConfig)));\nparts.push(field(boundary, 'boq_media_type', boqMediaType));\nparts.push(field(boundary, 'callback_url', CALLBACK_ROUTER_URL));\nparts.push(Buffer.from('--' + boundary + '--\\r\\n'));\nconst uploadBody = Buffer.concat(parts);\nconst result = await requestRaw('POST', backendUrl + '/api/integrations/generic/quotation/start', { Authorization: 'Bearer ' + loginResp.access_token, 'x-tenant-slug': TENANT_SLUG, 'Content-Type': 'multipart/form-data; boundary=' + boundary, 'Content-Length': String(uploadBody.length) }, uploadBody, 120000);\nawait sendTelegramMessage(chatId, 'Details submitted successfully. Your quotation is being generated and we will send the DOCX file here shortly.');\nreturn [{ json: { ok: true, status: result.status || 'started', project_id: result.project_id, pipeline_run_id: result.pipeline_run_id } }];\n} catch (error) {\n  return [{ json: { ok: false, error: error.message || String(error) } }];\n}"
+      },
+      "id": "tg-submit-prepare-009",
+      "name": "Submit to RAGM Pipeline",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -660,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json; charset=utf-8"
+              }
+            ]
+          }
+        }
+      },
+      "id": "tg-submit-respond-010",
+      "name": "Return Submit JSON",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -420,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Telegram Quotation Mini App\n\nLayer 1 Telegram workflow. Receives Bot API webhook updates, serves the Telegram Mini App, accepts Mini App uploads, and starts the existing RAGM quotation pipeline.\n\nConfig is env-driven where available: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_MINI_APP_URL`, `TELEGRAM_SUBMIT_URL`, `RAGM_BACKEND_API_URL`, `RAGM_TENANT_SLUG`, `RAGM_LOGIN_EMAIL`, `RAGM_LOGIN_PASSWORD`, `N8N_PIPELINE_CALLBACK_URL`.",
+        "height": 280,
+        "width": 560
+      },
+      "id": "tg-note-011",
+      "name": "Setup Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -940,
+        -620
+      ]
+    }
+  ],
+  "connections": {
+    "Telegram Bot Webhook": {
+      "main": [
+        [
+          {
+            "node": "Parse Telegram Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Telegram Update": {
+      "main": [
+        [
+          {
+            "node": "Acknowledge Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Acknowledge Telegram": {
+      "main": [
+        [
+          {
+            "node": "Send Mini App Button",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mini App Page": {
+      "main": [
+        [
+          {
+            "node": "Render Mini App HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render Mini App HTML": {
+      "main": [
+        [
+          {
+            "node": "Return Mini App HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mini App Submit": {
+      "main": [
+        [
+          {
+            "node": "Submit to RAGM Pipeline",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Submit to RAGM Pipeline": {
+      "main": [
+        [
+          {
+            "node": "Return Submit JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "description": "Layer 1 Telegram platform workflow using Telegram Mini App intake."
+  },
+  "pinData": {},
+  "versionId": "telegram-miniapp-v1",
+  "triggerCount": 0,
+  "tags": []
+}

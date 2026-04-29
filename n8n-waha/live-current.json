@@ -1,0 +1,389 @@
+{
+  "updatedAt": "2026-04-23T13:11:26.000Z",
+  "createdAt": "2026-04-23T13:01:50.107Z",
+  "id": "82b25c26-918f-43f8-aacd-7d59d51211e9",
+  "name": "WhatsApp Quotation Bot - WAHA Collection Live v2",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "whatsapp-quotation-waha",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "2cb0fe9c-2835-4938-87c3-30da879f3ea9",
+      "name": "WAHA Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -1296,
+        208
+      ],
+      "webhookId": "whatsapp-quotation-evo"
+    },
+    {
+      "parameters": {
+        "respondWith": "noData",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "8e56dd2e-f97d-42bb-a7ea-07f2f30bdb9c",
+      "name": "Acknowledge",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -1056,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// Node 3: Parse Message (WAHA webhook format)\n// Extracts sender chat, text/media metadata from WAHA `message` events.\n// Uses normalized sender key to keep conversation state stable.\n// ============================================================\n\nconst body = $input.first().json.body || $input.first().json;\nconst event = body?.event;\nconst payload = body?.payload || body;\n\nif (event && event !== 'message') {\n  return [{ json: { skip: true } }];\n}\n\nif (payload?.fromMe || payload?.source === 'api') {\n  return [{ json: { skip: true } }];\n}\n\nlet chatId = payload?.from || payload?.chatId || '';\nchatId = String(chatId).replace('@s.whatsapp.net', '@c.us');\n\nif (!chatId || chatId === 'status@broadcast' || chatId.endsWith('@g.us') || chatId.endsWith('@newsletter')) {\n  return [{ json: { skip: true } }];\n}\n\nconst rawSender = String(payload?.from || payload?.chatId || chatId || '');\nconst rawLocalPart = rawSender.split('@')[0] || '';\nconst normalizedDigits = rawLocalPart.replace(/\\D/g, '');\nconst senderPhone = normalizedDigits || rawLocalPart;\nconst conversationKey = normalizedDigits || String(chatId).toLowerCase();\n\nif (!senderPhone || !conversationKey) {\n  return [{ json: { skip: true } }];\n}\n\nconst messageId = payload?.id || '';\nconst media = payload?.media || null;\nconst mime = media?.mimetype || payload?.mimetype || '';\n\nlet messageType = 'unknown';\nlet messageText = payload?.body || '';\nlet mediaUrl = media?.url || payload?.mediaUrl || '';\nlet mediaMimeType = mime;\nlet mediaFileName = media?.filename || payload?.filename || '';\n\nif (payload?.hasMedia || mediaUrl || mediaMimeType) {\n  if (mediaMimeType.startsWith('image/')) {\n    messageType = 'image';\n    mediaFileName = mediaFileName || 'image.jpg';\n  } else {\n    messageType = 'document';\n    mediaFileName = mediaFileName || 'document';\n  }\n} else if (messageText) {\n  messageType = 'text';\n}\n\nreturn [{\n  json: {\n    skip: false,\n    senderPhone,\n    conversationKey,\n    chatId,\n    messageId,\n    messageType,\n    messageText,\n    mediaUrl,\n    mediaMimeType,\n    mediaFileName,\n    messageKey: { id: messageId, chatId },\n    raw: body,\n  }\n}];"
+      },
+      "id": "ff6ed405-b4e2-4336-82e4-34846823210d",
+      "name": "Parse Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -800,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// WAHA WhatsApp quotation collection + handoff\nconst WAHA_API_URL = 'http://172.17.0.1:3002';\nconst WAHA_API_KEY = 'B6D711FCDE4D4FD5936544120E713976';\nconst WAHA_SESSION = 'default';\nconst BACKEND_API_URL = 'http://172.17.0.1:3001';\nconst ACME_TENANT_SLUG = 'acme';\nconst ACME_EMAIL = 'admin@acme.com';\nconst ACME_PASSWORD = 'admin123';\n\nconst input = $input.first().json;\nif (input.skip) {\n  return [{ json: { action: 'no_op' } }];\n}\n\nconst {\n  senderPhone, conversationKey, chatId, messageType, messageText,\n  mediaUrl, mediaMimeType, mediaFileName\n} = input;\n\nconst text = (messageText || '').trim();\nconst textLower = text.toLowerCase();\n\n\n// File-based state storage (replaces staticData which is broken in n8n 2.x Task Runner)\nconst fs = require('fs');\nconst STATE_FILE = '/home/node/.n8n/whatsapp_conversations.json';\n\nfunction loadConversations() {\n  try {\n    return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));\n  } catch (e) {\n    return {};\n  }\n}\n\nfunction saveConversations(convs) {\n  fs.writeFileSync(STATE_FILE, JSON.stringify(convs), 'utf8');\n}\n\nconst allConversations = loadConversations();\nconst senderStateKey = conversationKey || senderPhone;\nif (!senderStateKey) {\n  return [{ json: { action: 'no_op' } }];\n}\nif (!allConversations[senderStateKey]) allConversations[senderStateKey] = { state: 'new' };\n\nconst conv = allConversations[senderStateKey];\nif (chatId) conv.chat_id = chatId;\nconst state = conv.state;\n\nlet action = 'no_op';\nlet payload = {};\n\nswitch (state) {\n  case 'new': {\n    action = 'send_message';\n    payload = {\n      to: senderPhone,\n      text: 'Welcome! Would you like to generate a quotation?\\n\\nReply *1* for Yes\\nReply *2* for No',\n    };\n    conv.state = 'awaiting_confirm';\n    break;\n  }\n  case 'awaiting_confirm': {\n    if (text === '1' || textLower === 'yes') {\n      action = 'send_message';\n      payload = {\n        to: senderPhone,\n        text: 'Please send your BOQ file.\\n\\nAccepted formats:\\n- Excel (.xlsx)\\n- PDF (.pdf)\\n- Images (you can send multiple)',\n      };\n      conv.state = 'awaiting_boq';\n    } else if (text === '2' || textLower === 'no') {\n      action = 'send_message';\n      payload = { to: senderPhone, text: 'No problem! Send me a message anytime to start.' };\n      conv.state = 'new';\n    } else {\n      action = 'send_message';\n      payload = { to: senderPhone, text: 'Please reply with a valid option:\\n\\nReply *1* for Yes\\nReply *2* for No' };\n    }\n    break;\n  }\n  case 'awaiting_boq': {\n    if (messageType === 'document') {\n      const isXlsx = (mediaMimeType || '').includes('spreadsheet')\n        || (mediaMimeType || '').includes('excel')\n        || (mediaFileName || '').toLowerCase().endsWith('.xlsx')\n        || (mediaFileName || '').toLowerCase().endsWith('.xls');\n      const isPdf = (mediaMimeType || '') === 'application/pdf' || (mediaFileName || '').toLowerCase().endsWith('.pdf');\n      if (isXlsx || isPdf) {\n        conv.boq_media_type = isPdf ? 'pdf' : 'xlsx';\n        conv.boq_media_url = mediaUrl || null;\n        conv.boq_filename = mediaFileName || (isPdf ? 'boq.pdf' : 'boq.xlsx');\n        conv.boq_mime_type = mediaMimeType || (isPdf ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');\n        action = 'send_message';\n        payload = { to: senderPhone, text: 'BOQ file received.\\n\\nNow please send your Specification file (PDF only).' };\n        conv.state = 'awaiting_spec';\n      } else {\n        action = 'send_message';\n        payload = { to: senderPhone, text: 'Unsupported file format. Please send an Excel (.xlsx) or PDF (.pdf) file.' };\n      }\n    } else if (messageType === 'image') {\n      conv.boq_images = [{ media_url: mediaUrl || null, mime_type: mediaMimeType || 'image/jpeg', filename: mediaFileName || 'boq_image_1.jpg' }];\n      conv.boq_media_type = 'images';\n      action = 'send_message';\n      payload = { to: senderPhone, text: 'Image received! Send more images or reply *done* when finished.' };\n      conv.state = 'collecting_boq_images';\n    } else {\n      action = 'send_message';\n      payload = { to: senderPhone, text: 'Please send a BOQ file (Excel, PDF, or images).' };\n    }\n    break;\n  }\n  case 'collecting_boq_images': {\n    if (messageType === 'image') {\n      if (!conv.boq_images) conv.boq_images = [];\n      conv.boq_images.push({\n        media_url: mediaUrl || null,\n        mime_type: mediaMimeType || 'image/jpeg',\n        filename: mediaFileName || ('boq_image_' + (conv.boq_images.length + 1) + '.jpg'),\n      });\n      action = 'send_message';\n      payload = { to: senderPhone, text: String(conv.boq_images.length) + ' image(s) received. Send more or reply *done* when finished.' };\n    } else if (textLower === 'done') {\n      action = 'send_message';\n      payload = { to: senderPhone, text: String((conv.boq_images || []).length) + ' BOQ image(s) saved.\\n\\nNow please send your Specification file (PDF only).' };\n      conv.state = 'awaiting_spec';\n    } else {\n      action = 'send_message';\n      payload = { to: senderPhone, text: 'Please send an image or reply *done* when finished.' };\n    }\n    break;\n  }\n  case 'awaiting_spec': {\n    const isPdf = messageType === 'document' && (((mediaMimeType || '') === 'application/pdf') || (mediaFileName || '').toLowerCase().endsWith('.pdf'));\n    if (isPdf) {\n      conv.spec_media_url = mediaUrl || null;\n      conv.spec_filename = mediaFileName || 'specification.pdf';\n      conv.spec_mime_type = mediaMimeType || 'application/pdf';\n      action = 'send_message';\n      payload = { to: senderPhone, text: 'Spec file received.\\n\\nWould you like to provide client details?\\n\\nReply *1* for Yes\\nReply *2* to Skip' };\n      conv.state = 'awaiting_client_choice';\n    } else {\n      action = 'send_message';\n      payload = { to: senderPhone, text: 'Please send a PDF file for the specification.' };\n    }\n    break;\n  }\n  case 'awaiting_client_choice': {\n    if (text === '1' || textLower === 'yes') {\n      action = 'send_message';\n      payload = { to: senderPhone, text: 'Enter *client name*:' };\n      conv.state = 'collecting_client_name';\n    } else if (text === '2' || textLower === 'skip') {\n      conv.client_data = {};\n      action = 'send_message';\n      payload = { to: senderPhone, text: 'Client details skipped.\\n\\nWould you like to provide project details?\\n\\nReply *1* for Yes\\nReply *2* to Skip' };\n      conv.state = 'awaiting_project_choice';\n    } else {\n      action = 'send_message';\n      payload = { to: senderPhone, text: 'Please reply with a valid option:\\n\\nReply *1* for Yes\\nReply *2* to Skip' };\n    }\n    break;\n  }\n  case 'collecting_client_name': {\n    if (text) {\n      conv.client_data = { name: text };\n      action = 'send_message';\n      payload = { to: senderPhone, text: 'Enter *company name*:' };\n      conv.state = 'collecting_company_name';\n    } else {\n      action = 'send_message';\n      payload = { to: senderPhone, text: 'Please enter a client name.' };\n    }\n    break;\n  }\n  case 'collecting_company_name': {\n    if (text) {\n      conv.client_data.company_name = text;\n      action = 'send_message';\n      payload = { to: senderPhone, text: 'Enter *email* (or reply *skip*):' };\n      conv.state = 'collecting_client_email';\n    } else {\n      action = 'send_message';\n      payload = { to: senderPhone, text: 'Please enter a company name.' };\n    }\n    break;\n  }\n  case 'collecting_client_email': {\n    conv.client_data.email = (textLower === 'skip') ? null : (text || null);\n    action = 'send_message';\n    payload = { to: senderPhone, text: 'Enter *phone number* (or reply *skip*):' };\n    conv.state = 'collecting_client_phone';\n    break;\n  }\n  case 'collecting_client_phone': {\n    conv.client_data.phone = (textLower === 'skip') ? null : (text || null);\n    action = 'send_message';\n    payload = { to: senderPhone, text: 'Enter *address* (or reply *skip*):' };\n    conv.state = 'collecting_client_address';\n    break;\n  }\n  case 'collecting_client_address': {\n    conv.client_data.address = (textLower === 'skip') ? null : (text || null);\n    action = 'send_message';\n    payload = { to: senderPhone, text: 'Client details saved.\\n\\nWould you like to provide project details?\\n\\nReply *1* for Yes\\nReply *2* to Skip' };\n    conv.state = 'awaiting_project_choice';\n    break;\n  }\n  case 'awaiting_project_choice': {\n    if (text === '1' || textLower === 'yes') {\n      action = 'send_message';\n      payload = { to: senderPhone, text: 'Enter *project name*:' };\n      conv.state = 'collecting_project_name';\n    } else if (text === '2' || textLower === 'skip') {\n      const today = new Date().toISOString().split('T')[0];\n      conv.project_data = { project_name: 'WhatsApp Project ' + Date.now(), city: 'Riyadh', country: 'KSA', due_date: today };\n      action = 'send_message';\n      payload = { to: senderPhone, text: 'Project details skipped.\\n\\nSelect *service option*:\\n*1* - Supply Only\\n*2* - Supply & Install\\n*3* - Supply, Install & Commission' };\n      conv.state = 'collecting_config_service';\n    } else {\n      action = 'send_message';\n      payload = { to: senderPhone, text: 'Please reply with a valid option:\\n\\nReply *1* for Yes\\nReply *2* to Skip' };\n    }\n    break;\n  }\n  case 'collecting_project_name': {\n    if (text) {\n      conv.project_data = { project_name: text };\n      action = 'send_message';\n      payload = { to: senderPhone, text: 'Enter *city*:' };\n      conv.state = 'collecting_project_city';\n    } else {\n      action = 'send_message';\n      payload = { to: senderPhone, text: 'Please enter a project name.' };\n    }\n    break;\n  }\n  case 'collecting_project_city': {\n    if (text) {\n      conv.project_data.city = text;\n      action = 'send_message';\n      payload = { to: senderPhone, text: 'Enter *country* (or reply *skip* for KSA):' };\n      conv.state = 'collecting_project_country';\n    } else {\n      action = 'send_message';\n      payload = { to: senderPhone, text: 'Please enter a city.' };\n    }\n    break;\n  }\n  case 'collecting_project_country': {\n    conv.project_data.country = (textLower === 'skip') ? 'KSA' : (text || 'KSA');\n    action = 'send_message';\n    payload = { to: senderPhone, text: 'Enter *due date* (YYYY-MM-DD):' };\n    conv.state = 'collecting_project_due_date';\n    break;\n  }\n  case 'collecting_project_due_date': {\n    const datePattern = /^\\d{4}-\\d{2}-\\d{2}$/;\n    if (text && datePattern.test(text)) {\n      conv.project_data.due_date = text;\n      action = 'send_message';\n      payload = { to: senderPhone, text: 'Project details saved.\\n\\nSelect *service option*:\\n*1* - Supply Only\\n*2* - Supply & Install\\n*3* - Supply, Install & Commission' };\n      conv.state = 'collecting_config_service';\n    } else {\n      action = 'send_message';\n      payload = { to: senderPhone, text: 'Please enter a valid date in YYYY-MM-DD format (e.g. 2026-05-30):' };\n    }\n    break;\n  }\n  case 'collecting_config_service': {\n    if (['1', '2', '3'].includes(text)) {\n      conv.quotation_config = { service_option: parseInt(text, 10) };\n      action = 'send_message';\n      payload = { to: senderPhone, text: 'Enter *margin percent* (or reply *0*):' };\n      conv.state = 'collecting_config_margin';\n    } else {\n      action = 'send_message';\n      payload = { to: senderPhone, text: 'Please select 1, 2, or 3.' };\n    }\n    break;\n  }\n  case 'collecting_config_margin': {\n    const margin = parseFloat(text);\n    if (!Number.isNaN(margin)) {\n      conv.quotation_config.margin_percent = margin;\n      action = 'send_message';\n      payload = { to: senderPhone, text: 'Enter *payment terms* (or reply *skip*):' };\n      conv.state = 'collecting_config_payment';\n    } else {\n      action = 'send_message';\n      payload = { to: senderPhone, text: 'Please enter a valid number for margin percent.' };\n    }\n    break;\n  }\n  case 'collecting_config_payment': {\n    conv.quotation_config.payment_terms_text = (textLower === 'skip') ? null : (text || null);\n    action = 'send_message';\n    payload = { to: senderPhone, text: 'Enter *quotation subject* (or reply *skip*):' };\n    conv.state = 'collecting_config_subject';\n    break;\n  }\n  case 'collecting_config_subject': {\n    conv.quotation_config.subject = (textLower === 'skip') ? null : (text || null);\n    conv.state = 'executing';\n    action = 'execute_pipeline';\n    payload = {\n      senderPhone,\n      conversationKey: senderStateKey,\n      chatId: conv.chat_id || chatId || (senderPhone + '@c.us'),\n      conversation: JSON.parse(JSON.stringify(conv)),\n      config: {\n        WAHA_API_URL,\n        WAHA_API_KEY,\n        WAHA_SESSION,\n        BACKEND_API_URL,\n        ACME_TENANT_SLUG,\n        ACME_EMAIL,\n        ACME_PASSWORD,\n      },\n    };\n    break;\n  }\n  case 'executing': {\n    action = 'send_message';\n    payload = { to: senderPhone, text: 'Your quotation is being generated. You will receive it here shortly.' };\n    break;\n  }\n  default: {\n    conv.state = 'awaiting_confirm';\n    action = 'send_message';\n    payload = { to: senderPhone, text: 'Welcome! Would you like to generate a quotation?\\n\\nReply *1* for Yes\\nReply *2* for No' };\n    break;\n  }\n}\n\nlet wahaBody = null;\nlet wahaUrl = '';\nif (action === 'send_message') {\n  const targetChatId = chatId || conv.chat_id || (payload.to + '@c.us');\n  wahaUrl = WAHA_API_URL + '/api/sendText';\n  wahaBody = { session: WAHA_SESSION, chatId: targetChatId, text: payload.text };\n}\n\nsaveConversations(allConversations);\n\nreturn [{ json: { action, payload, wahaBody, wahaUrl, config: { WAHA_API_URL, WAHA_API_KEY, WAHA_SESSION } } }];\n"
+      },
+      "id": "fe659f10-8fa6-4661-9b38-5370433734ec",
+      "name": "State Machine",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -544,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "send_message",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "send_message"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "execute_pipeline",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "execute_pipeline"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "491a9364-7722-4fcf-ad9b-faa374d14dd4",
+      "name": "Route Action",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        -304,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.wahaUrl }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{ $json.config.WAHA_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.wahaBody) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "6d3b33a3-3f10-4467-b892-0abac491bac2",
+      "name": "Send Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Setup Instructions\n\n### 1. WAHA Setup\n1. Start services: `docker compose -f n8n-waha/docker-compose.waha.yml up -d`\n2. Open http://localhost:3002/dashboard\n3. Login with `admin` / `RAGM-WAHA-Dashboard-2026`\n4. Connect using API key: `B6D711FCDE4D4FD5936544120E713976`\n5. Start the `default` session and scan the QR code with WhatsApp on your phone\n6. The session is created with webhook URL: `http://172.17.0.1:5678/webhook/whatsapp-quotation-waha`\n\n### 2. n8n\n- Import this workflow into n8n.\n- Save and activate it.\n- Existing `n8n/` and `n8n-evolution/` workflows are not changed.\n\n### 3. Behavior\n- No Meta Business account needed.\n- Text-only numbered interaction.\n- Collection-only workflow: no backend API calls yet.\n- State stored in workflow static data per sender.",
+        "height": 540,
+        "width": 560
+      },
+      "id": "f5a953b3-8f6d-481a-acda-52f112075475",
+      "name": "Config Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1296,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Collection Workflow Reference\n\nThis WAHA version currently collects data only and sends a summary. Backend API calls stay disabled until the WhatsApp gateway is proven stable.\n\n### Endpoints Used\n\n| Step | Method | Endpoint | Body |\n|------|--------|----------|------|\n| Create Client | `POST` | `/api/clients` | `{ name, company_name, email?, phone?, address? }` |\n| Create Project | `POST` | `/api/projects` | `{ project_name, client_id, city, country, due_date }` |\n| Upload BOQ (xlsx) | `POST` | `/api/projects/{id}/boq/upload` | multipart `file` |\n| Upload BOQ (pdf) | `POST` | `/api/projects/{id}/boq/upload-pdf` | multipart `file` |\n| Upload BOQ (images) | `POST` | `/api/projects/{id}/boq/upload-images` | multipart `files` |\n| Upload Spec | `POST` | `/api/projects/{id}/spec/upload` | multipart `file` |\n| Quotation Config | `POST` | `/api/projects/{id}/pipeline/quotation-config` | JSON |\n| Run Pipeline | `POST` | `/api/projects/{id}/pipeline/run` | (empty) |\n| Poll Status | `GET` | `/api/projects/{id}/pipeline/status` | \u2014 |\n| Download URL | `GET` | `/api/projects/{id}/quotation/download?format=docx` | \u2014 |\n\n### Conversation States (22)\n`new` \u2192 `awaiting_confirm` \u2192 `awaiting_boq` \u2192 `collecting_boq_images` \u2192 `awaiting_spec` \u2192 `awaiting_client_choice` \u2192 `collecting_client_name` \u2192 `collecting_company_name` \u2192 `collecting_client_email` \u2192 `collecting_client_phone` \u2192 `collecting_client_address` \u2192 `awaiting_project_choice` \u2192 `collecting_project_name` \u2192 `collecting_project_city` \u2192 `collecting_project_country` \u2192 `collecting_project_due_date` \u2192 `collecting_config_service` \u2192 `collecting_config_margin` \u2192 `collecting_config_payment` \u2192 `collecting_config_subject` \u2192 `executing` \u2192 `done`",
+        "height": 480,
+        "width": 620
+      },
+      "id": "a43d513f-0786-447b-9b79-7725b4956f8a",
+      "name": "API Reference",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -704,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## WAHA API Reference\n\n### Connection\n- Uses WhatsApp Web style QR/session pairing.\n- ARM-native image is used: `devlikeapro/waha:noweb-arm`.\n- Default session name: `default`.\n\n### Key Endpoints\n\n| Action | Method | Endpoint |\n|--------|--------|----------|\n| Send text | `POST` | `/api/sendText` |\n| Sessions | `POST/GET` | `/api/sessions` |\n| Screenshot/QR | Dashboard or `/api/screenshot` |\n\n### Auth Header\nAll API requests use: `X-Api-Key: <your-api-key>`\n\n### Send Text Body\n```json\n{\n  \"session\": \"default\",\n  \"chatId\": \"923001234567@c.us\",\n  \"text\": \"Hello\"\n}\n```\n\n### Webhook Payload\nWAHA sends `event: \"message\"` with `payload.from`, `payload.body`, `payload.hasMedia`, and optional `payload.media.url`.\n\n### Limitations\n- We use plain text numbered replies for reliability.\n- No WhatsApp Flows in this workaround path.\n- Backend pipeline calls are intentionally off for the first working test.",
+        "height": 620,
+        "width": 500
+      },
+      "id": "b880806b-af08-4d10-b2e3-37d5934d24ca",
+      "name": "WAHA Setup",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -48,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\nconst payload = input.payload || {};\nconst senderPhone = payload.senderPhone;\nconst conversationKey = payload.conversationKey || senderPhone;\nconst chatId = payload.chatId;\nconst conv = payload.conversation || {};\nconst config = payload.config || {};\n\nconst WAHA_API_URL = config.WAHA_API_URL;\nconst WAHA_API_KEY = config.WAHA_API_KEY;\nconst WAHA_SESSION = config.WAHA_SESSION;\nconst BACKEND_API_URL = config.BACKEND_API_URL;\nconst ACME_TENANT_SLUG = config.ACME_TENANT_SLUG;\nconst ACME_EMAIL = config.ACME_EMAIL;\nconst ACME_PASSWORD = config.ACME_PASSWORD;\n\nconst httpRequest = this.helpers.httpRequest;\n\nconst apiRequest = async (opts) => {\n  const req = {\n    method: opts.method,\n    url: opts.url,\n    headers: opts.headers || {},\n    timeout: 30000,\n    json: true,\n  };\n  if (opts.body !== undefined) {\n    req.body = opts.body;\n    req.data = opts.body;\n  }\n  return await httpRequest(req);\n};\n\nconst sendText = async (text) => {\n  await apiRequest({\n    method: 'POST',\n    url: WAHA_API_URL + '/api/sendText',\n    headers: { 'X-Api-Key': WAHA_API_KEY, 'Content-Type': 'application/json' },\n    body: {\n      session: WAHA_SESSION,\n      chatId: chatId || conv.chat_id || (senderPhone + '@c.us'),\n      text,\n    },\n  });\n};\n\ntry {\n  const login = await apiRequest({\n    method: 'POST',\n    url: BACKEND_API_URL + '/api/auth/login',\n    headers: { 'Content-Type': 'application/json', 'x-tenant-slug': ACME_TENANT_SLUG },\n    body: { email: ACME_EMAIL, password: ACME_PASSWORD },\n  });\n  const token = login && login.access_token;\n  if (!token) throw new Error('Backend login failed: missing access token');\n\n  const startResp = await apiRequest({\n    method: 'POST',\n    url: BACKEND_API_URL + '/api/integrations/whatsapp/quotation/start',\n    headers: {\n      Authorization: 'Bearer ' + token,\n      'x-tenant-slug': ACME_TENANT_SLUG,\n      'Content-Type': 'application/json',\n    },\n    body: {\n      sender_phone: senderPhone,\n      chat_id: chatId || conv.chat_id || (senderPhone + '@c.us'),\n      boq_media_type: conv.boq_media_type,\n      boq_media_url: conv.boq_media_url || null,\n      boq_filename: conv.boq_filename || null,\n      boq_mime_type: conv.boq_mime_type || null,\n      boq_images: (conv.boq_images || []).map((x) => ({\n        media_url: x.media_url || null,\n        mime_type: x.mime_type || null,\n        filename: x.filename || null,\n      })),\n      spec_media_url: conv.spec_media_url,\n      spec_filename: conv.spec_filename || 'specification.pdf',\n      client_data: conv.client_data || {},\n      project_data: conv.project_data || {},\n      quotation_config: conv.quotation_config || {},\n      waha_api_key: WAHA_API_KEY,\n    },\n  });\n\n  await sendText(\n    'Your quotation is being generated.\\n\\nProject ID: ' +\n      startResp.project_id +\n      '\\nWe will send the final result here shortly.'\n  );\n  return [{ json: { success: true, project_id: startResp.project_id, pipeline_run_id: startResp.pipeline_run_id } }];\n} catch (error) {\n  const fs = require('fs');\n  try {\n    const convs = JSON.parse(fs.readFileSync('/home/node/.n8n/whatsapp_conversations.json', 'utf8'));\n    if (convs[conversationKey]) {\n      convs[conversationKey] = { state: 'new' };\n      fs.writeFileSync('/home/node/.n8n/whatsapp_conversations.json', JSON.stringify(convs), 'utf8');\n    }\n  } catch (e) {}\n  await sendText(\n    'Could not start quotation generation.\\n\\n' +\n      (error.message || String(error)) +\n      '\\n\\nPlease try again.'\n  );\n  return [{ json: { success: false, error: String(error && error.message ? error.message : error) } }];\n}\n"
+      },
+      "id": "evo-0001-4000-8000-000000000012",
+      "name": "Execute Pipeline",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "whatsapp-quotation-pipeline-callback-waha",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "evo-0001-4000-8000-000000000013",
+      "name": "Pipeline Callback Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -1050,
+        -250
+      ],
+      "webhookId": "whatsapp-quotation-pipeline-callback-waha"
+    },
+    {
+      "parameters": {
+        "jsCode": "const WAHA_API_URL = 'http://172.17.0.1:3002';\nconst WAHA_API_KEY = 'B6D711FCDE4D4FD5936544120E713976';\nconst WAHA_SESSION = 'default';\nconst EXPECTED_CALLBACK_TOKEN = 'ragm-pipeline-callback-2026';\n\nconst httpRequest = this.helpers.httpRequest;\nconst req = $input.first().json;\nconst headers = req.headers || {};\nconst body = req.body || req;\n\nconst providedToken =\n  headers['x-callback-token'] ||\n  headers['X-Callback-Token'] ||\n  '';\n\nif (EXPECTED_CALLBACK_TOKEN && providedToken !== EXPECTED_CALLBACK_TOKEN) {\n  return [{ json: { ignored: true, reason: 'invalid_token' } }];\n}\n\nconst replyInfo = body.platform_reply_info || {};\nconst senderPhone = replyInfo.sender_phone || body.sender_phone || null;\nconst chatId = replyInfo.chat_id || body.chat_id || (senderPhone ? senderPhone + '@c.us' : null);\nif (!chatId) {\n  return [{ json: { ignored: true, reason: 'missing_recipient' } }];\n}\n\nconst sendText = async (text) => {\n  await httpRequest({\n    method: 'POST',\n    url: WAHA_API_URL + '/api/sendText',\n    headers: {\n      'X-Api-Key': WAHA_API_KEY,\n      'Content-Type': 'application/json',\n    },\n    json: true,\n    body: { session: WAHA_SESSION, chatId, text },\n    data: { session: WAHA_SESSION, chatId, text },\n    timeout: 15000,\n  });\n};\n\nif (body.status === 'completed') {\n  const downloadUrl = body.download_url || null;\n  const fileName = body.file_name || 'quotation.docx';\n  if (downloadUrl) {\n    await sendText('Your quotation is ready.\\n\\nFile: ' + fileName + '\\nDownload: ' + downloadUrl);\n  } else {\n    await sendText('Pipeline completed for project ' + body.project_id + ', but no download link was provided.');\n  }\n} else if (body.status === 'failed') {\n  await sendText(\n    'Quotation generation failed.\\nProject: ' +\n      body.project_id +\n      '\\nStep: ' +\n      (body.error_step || 'unknown') +\n      '\\nError: ' +\n      (body.error_message || 'unknown error')\n  );\n}\n\nif (senderPhone) {\n  const fs = require('fs');\n  try {\n    const convs = JSON.parse(fs.readFileSync('/home/node/.n8n/whatsapp_conversations.json', 'utf8'));\n    convs[senderPhone] = { state: 'new' };\n    fs.writeFileSync('/home/node/.n8n/whatsapp_conversations.json', JSON.stringify(convs), 'utf8');\n  } catch (e) {\n    const convs = {};\n    convs[senderPhone] = { state: 'new' };\n    fs.writeFileSync('/home/node/.n8n/whatsapp_conversations.json', JSON.stringify(convs), 'utf8');\n  }\n}\n\nreturn [{ json: { ok: true } }];\n"
+      },
+      "id": "evo-0001-4000-8000-000000000015",
+      "name": "Handle Pipeline Callback",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -820,
+        -170
+      ]
+    }
+  ],
+  "connections": {
+    "Acknowledge": {
+      "main": [
+        [
+          {
+            "node": "Parse Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Message": {
+      "main": [
+        [
+          {
+            "node": "State Machine",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "State Machine": {
+      "main": [
+        [
+          {
+            "node": "Route Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Action": {
+      "main": [
+        [
+          {
+            "node": "Send Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Execute Pipeline",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WAHA Webhook": {
+      "main": [
+        [
+          {
+            "node": "Acknowledge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pipeline Callback Webhook": {
+      "main": [
+        [
+          {
+            "node": "Handle Pipeline Callback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": {
+    "global": {
+      "conversations": {}
+    }
+  },
+  "meta": null,
+  "pinData": {},
+  "versionId": "39c15383-853b-4f58-8d8d-401ab50baff8",
+  "activeVersionId": null,
+  "versionCounter": 48,
+  "triggerCount": 2,
+  "tags": [
+    {
+      "updatedAt": "2026-04-23T07:31:22.502Z",
+      "createdAt": "2026-04-23T07:31:22.502Z",
+      "id": "E6HhLdlmUzKTcNNm",
+      "name": "WAHA"
+    },
+    {
+      "updatedAt": "2026-04-22T14:34:05.314Z",
+      "createdAt": "2026-04-22T14:34:05.314Z",
+      "id": "XEl0g7Q1at6OXxRI",
+      "name": "Quotation"
+    },
+    {
+      "updatedAt": "2026-04-22T14:34:05.303Z",
+      "createdAt": "2026-04-22T14:34:05.303Z",
+      "id": "eafucMmkt9GdVDNd",
+      "name": "WhatsApp"
+    }
+  ],
+  "shared": [
+    {
+      "updatedAt": "2026-04-23T13:01:50.109Z",
+      "createdAt": "2026-04-23T13:01:50.109Z",
+      "role": "workflow:owner",
+      "workflowId": "82b25c26-918f-43f8-aacd-7d59d51211e9",
+      "projectId": "lTkVIU7s046sVmRj",
+      "project": {
+        "updatedAt": "2026-04-22T11:59:52.550Z",
+        "createdAt": "2026-04-22T11:58:49.374Z",
+        "id": "lTkVIU7s046sVmRj",
+        "name": "Muhammad Arslan <arslan05342@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "113e63ff-aa22-488e-b123-f42be3946fa0"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": "Version 485f5a6c",
+    "description": ""
+  }
+}

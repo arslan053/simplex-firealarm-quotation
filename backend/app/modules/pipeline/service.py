@@ -5,9 +5,11 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
+import httpx
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.modules.boq_extraction.service import BoqExtractionService
 from app.modules.spec_analysis.service import SpecAnalysisService
 from app.modules.device_selection.service import DeviceSelectionService
@@ -146,6 +148,82 @@ class PipelineService:
         )
         await self.db.commit()
 
+    async def _get_project_quotation_config(
+        self, tenant_id: uuid.UUID, project_id: uuid.UUID
+    ) -> dict:
+        result = await self.db.execute(
+            text("""
+                SELECT quotation_config
+                FROM projects
+                WHERE tenant_id = :tid AND id = :pid
+            """),
+            {"tid": tenant_id, "pid": project_id},
+        )
+        row = result.fetchone()
+        if not row or not row[0]:
+            return {}
+        return row[0]
+
+    async def _notify_n8n_pipeline_callback(
+        self,
+        run_id: uuid.UUID,
+        tenant_id: uuid.UUID,
+        project_id: uuid.UUID,
+        status: str,
+        error_step: str | None = None,
+        error_message: str | None = None,
+    ) -> None:
+        cfg = await self._get_project_quotation_config(tenant_id, project_id)
+        callback_url = cfg.get("callback_url") or settings.N8N_PIPELINE_CALLBACK_URL
+        if not callback_url:
+            return
+
+        source_platform = cfg.get("source_platform")
+        platform_reply_info = cfg.get("platform_reply_info")
+
+        # Resolve tenant slug for the callback
+        slug_row = await self.db.execute(
+            text("SELECT slug FROM tenants WHERE id = :tid"),
+            {"tid": tenant_id},
+        )
+        tenant_slug = (slug_row.scalar() or "")
+
+        payload: dict[str, object] = {
+            "run_id": str(run_id),
+            "tenant_id": str(tenant_id),
+            "tenant_slug": tenant_slug,
+            "project_id": str(project_id),
+            "status": status,
+            "source_platform": source_platform,
+            "platform_reply_info": platform_reply_info,
+            "error_step": error_step,
+            "error_message": error_message,
+        }
+
+        if status == "completed":
+            quotation_service = QuotationService(self.db)
+            download = await quotation_service.get_download_url(
+                tenant_id=tenant_id, project_id=project_id, fmt="docx"
+            )
+            if download:
+                payload["download_url"] = download.url
+                payload["file_name"] = download.file_name
+
+        headers = {"Content-Type": "application/json"}
+        if settings.N8N_PIPELINE_CALLBACK_TOKEN:
+            headers["X-Callback-Token"] = settings.N8N_PIPELINE_CALLBACK_TOKEN
+
+        try:
+            timeout = httpx.Timeout(15.0, connect=5.0)
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                await client.post(
+                    callback_url,
+                    json=payload,
+                    headers=headers,
+                )
+        except Exception as exc:
+            logger.warning("N8N callback failed for pipeline %s: %s", run_id, exc)
+
     async def _mark_failed(
         self, run_id: uuid.UUID, step: str, message: str
     ) -> None:
@@ -206,9 +284,23 @@ class PipelineService:
                         run_id, step, retry_exc,
                     )
                     await self._mark_failed(run_id, step, str(retry_exc))
+                    await self._notify_n8n_pipeline_callback(
+                        run_id=run_id,
+                        tenant_id=tenant_id,
+                        project_id=project_id,
+                        status="failed",
+                        error_step=step,
+                        error_message=str(retry_exc),
+                    )
                     return
 
         await self._mark_completed(run_id, steps_completed)
+        await self._notify_n8n_pipeline_callback(
+            run_id=run_id,
+            tenant_id=tenant_id,
+            project_id=project_id,
+            status="completed",
+        )
         logger.info("Pipeline %s completed successfully", run_id)
 
     async def _increment_retry(self, run_id: uuid.UUID) -> None:

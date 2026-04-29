@@ -1,0 +1,401 @@
+{
+  "name": "Email Quotation Intake",
+  "nodes": [
+    {
+      "parameters": {
+        "mailbox": "INBOX",
+        "postProcessAction": "read",
+        "format": "simple",
+        "downloadAttachments": false,
+        "options": {
+          "customEmailConfig": "[\"UNSEEN\"]",
+          "trackLastMessageId": true,
+          "forceReconnect": 60
+        }
+      },
+      "id": "email-imap-001",
+      "name": "Gmail IMAP Trigger",
+      "type": "n8n-nodes-base.emailReadImap",
+      "typeVersion": 2.1,
+      "position": [
+        -1000,
+        -180
+      ],
+      "credentials": {
+        "imap": {
+          "id": "gmail-imap-ragm-email",
+          "name": "Gmail IMAP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Accept only incoming emails with subject \"quotation\" and send a form link.\nconst N8N_PUBLIC_BASE_URL = 'https://n8n.amprosystem.com';\nconst item = $input.first().json;\nconst subject = String(item.subject || '').trim().toLowerCase();\nconst fromRaw = item.from?.value?.[0]?.address || item.from?.text || item.from || item.sender || '';\nconst fromName = item.from?.value?.[0]?.name || '';\nconst senderEmail = String(fromRaw).match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}/i)?.[0] || String(fromRaw).trim();\nif (subject !== 'quotation' || !senderEmail) {\n  return [{ json: { route: 'ignore', reason: subject !== 'quotation' ? 'subject_not_quotation' : 'missing_sender', subject, senderEmail } }];\n}\nconst formUrl = N8N_PUBLIC_BASE_URL.replace(/\\/$/, '') + '/form/email-quotation-request?sender_email=' + encodeURIComponent(senderEmail);\nreturn [{ json: { route: 'send_form_link', senderEmail, fromName, formUrl } }];\n"
+      },
+      "id": "email-parse-002",
+      "name": "Parse Quotation Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -760,
+        -180
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "send_form_link",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "send_form_link"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "email-route-003",
+      "name": "Route Email Subject",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        -520,
+        -180
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "email",
+        "operation": "send",
+        "fromEmail": "Simplex Quotation Generator <rgmruh11@gmail.com>",
+        "toEmail": "={{ $json.senderEmail }}",
+        "subject": "Quotation request form",
+        "emailFormat": "html",
+        "html": "=Hello{{ $json.fromName ? \" \" + $json.fromName : \"\" }},<br><br>Please complete this secure quotation form and upload your BOQ and specification files:<br><br><a href=\"{{ $json.formUrl }}\">Open quotation form</a><br><br>The form is mobile-friendly. After submission, we will email the generated DOCX quotation back to you.",
+        "options": {
+          "appendAttribution": false,
+          "replyTo": "={{ $json.senderEmail }}"
+        }
+      },
+      "id": "email-send-form-004",
+      "name": "Send Form Link Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        -280,
+        -220
+      ],
+      "credentials": {
+        "smtp": {
+          "id": "gmail-smtp-ragm-email",
+          "name": "Gmail SMTP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "none",
+        "path": "email-quotation-request",
+        "formTitle": "Quotation Request",
+        "formDescription": "Complete the details below and upload your BOQ and specification files. After submission, quotation generation will start and the result will be emailed to you.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Client name",
+              "fieldName": "client_name",
+              "fieldType": "text",
+              "placeholder": "e.g. Ahmed Khan",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Company name",
+              "fieldName": "company_name",
+              "fieldType": "text",
+              "placeholder": "e.g. ACME Trading",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Email",
+              "fieldName": "email",
+              "fieldType": "email",
+              "placeholder": "name@example.com",
+              "requiredField": false
+            },
+            {
+              "fieldLabel": "Phone",
+              "fieldName": "phone",
+              "fieldType": "text",
+              "placeholder": "+966...",
+              "requiredField": false
+            },
+            {
+              "fieldLabel": "Address",
+              "fieldName": "address",
+              "fieldType": "text",
+              "placeholder": "Optional",
+              "requiredField": false
+            },
+            {
+              "fieldType": "html",
+              "elementName": "project-section",
+              "html": "<hr><h3>Project details</h3>"
+            },
+            {
+              "fieldLabel": "Project name",
+              "fieldName": "project_name",
+              "fieldType": "text",
+              "placeholder": "e.g. Riyadh Office Tower",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "City",
+              "fieldName": "city",
+              "fieldType": "text",
+              "defaultValue": "Riyadh",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Country",
+              "fieldName": "country",
+              "fieldType": "text",
+              "defaultValue": "KSA",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Due date",
+              "fieldName": "due_date",
+              "fieldType": "date",
+              "requiredField": true
+            },
+            {
+              "fieldType": "html",
+              "elementName": "quotation-section",
+              "html": "<hr><h3>Quotation details</h3>"
+            },
+            {
+              "fieldLabel": "Service option",
+              "fieldName": "service_option",
+              "fieldType": "dropdown",
+              "defaultValue": "Supply & Install",
+              "requiredField": true,
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Supply Only"
+                  },
+                  {
+                    "option": "Supply & Install"
+                  },
+                  {
+                    "option": "Supply, Install & Commission"
+                  }
+                ]
+              }
+            },
+            {
+              "fieldLabel": "Margin percent",
+              "fieldName": "margin_percent",
+              "fieldType": "number",
+              "defaultValue": "0",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Payment terms",
+              "fieldName": "payment_terms_text",
+              "fieldType": "textarea",
+              "placeholder": "Optional payment terms",
+              "requiredField": false
+            },
+            {
+              "fieldLabel": "Quotation subject",
+              "fieldName": "subject",
+              "fieldType": "text",
+              "placeholder": "Optional subject line",
+              "requiredField": false
+            },
+            {
+              "fieldType": "html",
+              "elementName": "files-section",
+              "html": "<hr><h3>Files</h3><p>Upload the BOQ and specification here. Do not email the files separately.</p>"
+            },
+            {
+              "fieldLabel": "BOQ file",
+              "fieldName": "boq_file",
+              "fieldType": "file",
+              "multipleFiles": false,
+              "acceptFileTypes": ".xlsx,.pdf",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Specification PDF",
+              "fieldName": "spec_file",
+              "fieldType": "file",
+              "multipleFiles": false,
+              "acceptFileTypes": ".pdf",
+              "requiredField": true
+            },
+            {
+              "fieldName": "sender_email",
+              "fieldType": "hiddenField",
+              "fieldValue": ""
+            }
+          ]
+        },
+        "responseMode": "onReceived",
+        "options": {
+          "buttonLabel": "Generate quotation",
+          "appendAttribution": false,
+          "respondWithOptions": {
+            "values": {
+              "respondWith": "text",
+              "formSubmittedText": "Details submitted successfully. Your quotation is being generated and we will email you shortly."
+            }
+          },
+          "customCss": ":root { --font-family: Inter, Arial, sans-serif; --border-radius-card: 8px; --color-primary: #2563eb; } body { background: #f7f8fb; } .form-container { max-width: 760px; }"
+        }
+      },
+      "id": "email-form-005",
+      "name": "Email Quotation Form",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.5,
+      "position": [
+        -1000,
+        220
+      ],
+      "webhookId": "email-quotation-request"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Map n8n form fields + uploaded files into the shared core quotation sub-workflow input.\nconst BACKEND_API_URL = 'http://172.17.0.1:3001';\nconst TENANT_SLUG = 'acme';\nconst LOGIN_EMAIL = 'admin@acme.com';\nconst LOGIN_PASSWORD = 'admin123';\nconst CALLBACK_ROUTER_URL = 'http://172.17.0.1:5678/webhook/pipeline-callback-router';\n\nconst input = $input.first();\nconst data = input.json || {};\nconst binary = input.binary || {};\nfunction clean(v) { return String(v ?? '').trim(); }\nfunction pickBinary(name, fallbackPattern) {\n  if (binary[name]) return { key: name, value: binary[name] };\n  const key = Object.keys(binary).find(k => k.toLowerCase().includes(name.toLowerCase()) || (fallbackPattern && fallbackPattern.test(k)));\n  return key ? { key, value: binary[key] } : null;\n}\nasync function inlineBinary(picked) {\n  const b = picked.value;\n  const buf = await this.helpers.getBinaryDataBuffer(0, picked.key);\n  return {\n    ...b,\n    data: buf.toString('base64'),\n  };\n}\nfunction serviceValue(v) {\n  const s = clean(v).toLowerCase();\n  if (s === '1' || s.includes('supply only')) return 1;\n  if (s === '3' || s.includes('commission')) return 3;\n  return 2;\n}\nconst senderEmail = clean(data.sender_email || data.email);\nconst boqPicked = pickBinary('boq_file', /boq/i);\nconst specPicked = pickBinary('spec_file', /spec/i);\nif (!senderEmail) throw new Error('Missing sender_email hidden field');\nif (!boqPicked) throw new Error('Missing BOQ file upload');\nif (!specPicked) throw new Error('Missing specification file upload');\nconst boq = await inlineBinary.call(this, boqPicked);\nconst spec = await inlineBinary.call(this, specPicked);\nconst boqName = boq.fileName || 'boq.xlsx';\nlet boqMediaType = 'xlsx';\nif (boqName.toLowerCase().endsWith('.pdf') || boq.mimeType === 'application/pdf') boqMediaType = 'pdf';\n\nreturn [{\n  json: {\n    tenant_slug: TENANT_SLUG,\n    backend_url: BACKEND_API_URL,\n    credentials: JSON.stringify({ email: LOGIN_EMAIL, password: LOGIN_PASSWORD }),\n    source_platform: 'email',\n    platform_reply_info: JSON.stringify({ email: senderEmail, from_name: clean(data.client_name), smtp_from: 'Simplex Quotation Generator <rgmruh11@gmail.com>' }),\n    client_data: JSON.stringify({\n      name: clean(data.client_name),\n      company_name: clean(data.company_name),\n      email: clean(data.email) || senderEmail,\n      phone: clean(data.phone) || null,\n      address: clean(data.address) || null,\n    }),\n    project_data: JSON.stringify({\n      project_name: clean(data.project_name),\n      city: clean(data.city),\n      country: clean(data.country),\n      due_date: clean(data.due_date),\n    }),\n    quotation_config: JSON.stringify({\n      service_option: serviceValue(data.service_option),\n      margin_percent: Number(data.margin_percent || 0),\n      payment_terms_text: clean(data.payment_terms_text) || null,\n      subject: clean(data.subject) || null,\n    }),\n    boq_media_type: boqMediaType,\n    callback_url: CALLBACK_ROUTER_URL,\n  },\n  binary: {\n    boq_file: boq,\n    spec_file: spec,\n  },\n}];\n"
+      },
+      "id": "email-prepare-006",
+      "name": "Prepare Core Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -720,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Email platform upload path. Uses native HTTP for multipart because n8n's\n// helper can corrupt binary multipart bodies in the Task Runner sandbox.\nconst http = require('http');\nconst https = require('https');\n\nfunction parseUrl(s) {\n  const m = String(s || '').match(/^(https?):\\/\\/([^\\/:]+)(?::(\\d+))?(\\/.*)?$/);\n  if (!m) return { protocol: 'http:', hostname: s, port: null, path: '/' };\n  return { protocol: m[1] + ':', hostname: m[2], port: m[3] || null, path: m[4] || '/' };\n}\n\nfunction requestRaw(method, url, headers, body, timeoutMs = 120000) {\n  return new Promise((resolve, reject) => {\n    const parsed = parseUrl(url);\n    const lib = parsed.protocol === 'https:' ? https : http;\n    const req = lib.request({ hostname: parsed.hostname, port: parsed.port, path: parsed.path, method, headers }, (res) => {\n      const chunks = [];\n      res.on('data', c => chunks.push(c));\n      res.on('end', () => {\n        const text = Buffer.concat(chunks).toString();\n        if (res.statusCode >= 400) return reject(new Error('HTTP ' + res.statusCode + ': ' + text));\n        try { resolve(JSON.parse(text)); } catch (e) { resolve(text); }\n      });\n    });\n    req.on('error', reject);\n    req.setTimeout(timeoutMs, () => { req.destroy(); reject(new Error('HTTP timeout')); });\n    if (body) req.write(body);\n    req.end();\n  });\n}\n\nconst input = $input.first().json;\nconst binaryData = $input.first().binary || {};\nconst boqBinary = binaryData.boq_file;\nconst specBinary = binaryData.spec_file;\nif (!boqBinary || !specBinary) throw new Error('Missing binary file inputs (boq_file, spec_file)');\n\nconst backendUrl = input.backend_url.replace(/\\/$/, '');\nconst tenantSlug = input.tenant_slug;\nconst credentials = JSON.parse(input.credentials || '{}');\n\nconst loginBody = Buffer.from(JSON.stringify({ email: credentials.email, password: credentials.password }));\nconst loginResp = await requestRaw('POST', backendUrl + '/api/auth/login', {\n  'Content-Type': 'application/json',\n  'Content-Length': String(loginBody.length),\n  'x-tenant-slug': tenantSlug,\n}, loginBody, 30000);\nif (!loginResp || !loginResp.access_token) throw new Error('Backend login failed');\n\nconst boundary = '----n8nEmail' + Date.now();\nconst CRLF = '\\r\\n';\nfunction fieldPart(name, value) {\n  return Buffer.from('--' + boundary + CRLF + 'Content-Disposition: form-data; name=\"' + name + '\"' + CRLF + CRLF + String(value ?? '') + CRLF);\n}\nfunction filePart(name, filename, contentType, data) {\n  return [\n    Buffer.from('--' + boundary + CRLF + 'Content-Disposition: form-data; name=\"' + name + '\"; filename=\"' + filename + '\"' + CRLF + 'Content-Type: ' + contentType + CRLF + CRLF),\n    data,\n    Buffer.from(CRLF),\n  ];\n}\n\nconst parts = [];\nparts.push(...filePart('boq_file', boqBinary.fileName || 'boq.xlsx', boqBinary.mimeType || 'application/octet-stream', Buffer.from(boqBinary.data, 'base64')));\nparts.push(...filePart('spec_file', specBinary.fileName || 'specification.pdf', specBinary.mimeType || 'application/pdf', Buffer.from(specBinary.data, 'base64')));\nparts.push(fieldPart('source_platform', input.source_platform || 'email'));\nparts.push(fieldPart('platform_reply_info', input.platform_reply_info || '{}'));\nparts.push(fieldPart('client_data', input.client_data || '{}'));\nparts.push(fieldPart('project_data', input.project_data || '{}'));\nparts.push(fieldPart('quotation_config', input.quotation_config || '{}'));\nparts.push(fieldPart('boq_media_type', input.boq_media_type || 'xlsx'));\nif (input.callback_url) parts.push(fieldPart('callback_url', input.callback_url));\nparts.push(Buffer.from('--' + boundary + '--' + CRLF));\nconst body = Buffer.concat(parts);\n\nconst result = await requestRaw('POST', backendUrl + '/api/integrations/generic/quotation/start', {\n  Authorization: 'Bearer ' + loginResp.access_token,\n  'x-tenant-slug': tenantSlug,\n  'Content-Type': 'multipart/form-data; boundary=' + boundary,\n  'Content-Length': String(body.length),\n}, body, 120000);\n\nreturn [{ json: { status: result.status || 'started', project_id: result.project_id, pipeline_run_id: result.pipeline_run_id } }];"
+      },
+      "id": "email-core-007",
+      "name": "Email Direct Upload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -460,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Email Quotation Intake - Layer 1\n\nReceives Gmail/IMAP messages with subject `quotation`, replies with the n8n form link, then submits form uploads and metadata to the shared Core Sub-Workflow.\n\nRequires n8n credentials named `Gmail IMAP` and `Gmail SMTP`. Update the visible From address placeholders after credentials are configured.",
+        "height": 340,
+        "width": 520
+      },
+      "id": "email-note-008",
+      "name": "Setup Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1020,
+        -580
+      ]
+    }
+  ],
+  "connections": {
+    "Gmail IMAP Trigger": {
+      "main": [
+        [
+          {
+            "node": "Parse Quotation Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Quotation Email": {
+      "main": [
+        [
+          {
+            "node": "Route Email Subject",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Email Subject": {
+      "main": [
+        [
+          {
+            "node": "Send Form Link Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Email Quotation Form": {
+      "main": [
+        [
+          {
+            "node": "Prepare Core Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Core Payload": {
+      "main": [
+        [
+          {
+            "node": "Email Direct Upload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "description": "Layer 1 email platform workflow. Uses Gmail IMAP/SMTP and n8n Form, then delegates to the shared Core Sub-Workflow."
+  },
+  "pinData": {},
+  "versionId": "email-quotation-intake-v1",
+  "triggerCount": 2,
+  "tags": [],
+  "id": "email-quotation-intake"
+}
