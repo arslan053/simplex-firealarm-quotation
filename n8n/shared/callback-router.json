@@ -1,0 +1,463 @@
+{
+  "id": "pipeline-callback-router",
+  "name": "Pipeline Callback Router",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "pipeline-callback-router",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "cb-webhook-001",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        200
+      ],
+      "webhookId": "pipeline-callback-router"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validate callback token and extract payload\nconst EXPECTED_TOKEN = process.env.N8N_CALLBACK_TOKEN || 'ragm-pipeline-callback-2026';\n\nconst req = $input.first().json;\nconst headers = req.headers || {};\nconst body = req.body || req;\n\nconst token = headers['x-callback-token'] || headers['X-Callback-Token'] || '';\nif (EXPECTED_TOKEN && token !== EXPECTED_TOKEN) {\n  return [{ json: { ignored: true, reason: 'invalid_token' } }];\n}\n\nconst pipelineStatus = body.status || 'unknown';\nconst platform = body.source_platform || null;\nconst replyInfo = body.platform_reply_info || {};\n\nif (!platform) {\n  return [{ json: { ignored: true, reason: 'no_source_platform' } }];\n}\n\nreturn [{\n  json: {\n    status: pipelineStatus,\n    source_platform: platform,\n    platform_reply_info: replyInfo,\n    project_id: body.project_id || null,\n    tenant_id: body.tenant_id || null,\n    tenant_slug: body.tenant_slug || null,\n    run_id: body.run_id || null,\n    download_url: body.download_url || null,\n    file_name: body.file_name || 'quotation.docx',\n    error_step: body.error_step || null,\n    error_message: body.error_message || null,\n  }\n}];\n"
+      },
+      "id": "cb-validate-002",
+      "name": "Validate Token",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.source_platform }}",
+                    "rightValue": "slack",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "slack"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.source_platform }}",
+                    "rightValue": "telegram",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "telegram"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.source_platform }}",
+                    "rightValue": "whatsapp",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "whatsapp"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.source_platform }}",
+                    "rightValue": "email",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "email"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "cb-switch-004",
+      "name": "Switch on Platform",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        480,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare Slack delivery params for the local helper service.\nconst input = $input.first().json;\nconst replyInfo = input.platform_reply_info || {};\nreturn [{ json: {\n  project_id: input.project_id || null,\n  tenant_slug: input.tenant_slug || 'acme',\n  channel_id: replyInfo.channel_id || replyInfo.user_id || null,\n  bot_token: replyInfo.bot_token || '',\n  user_id: replyInfo.user_id || '',\n  file_name: input.file_name || 'quotation.docx',\n  status: input.status || 'unknown',\n  error_step: input.error_step || null,\n  error_message: input.error_message || null,\n} }];\n"
+      },
+      "id": "cb-slack-prep",
+      "name": "Prepare Slack Params",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        720,
+        50
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// The Slack file completion call crashes n8n's Task Runner sandbox.\n// Post JSON to a local helper process that runs the same delivery logic outside the sandbox.\nconst http = require('http');\n\nfunction postJson(url, payload) {\n  return new Promise((resolve, reject) => {\n    const body = Buffer.from(JSON.stringify(payload));\n    const req = http.request({\n      hostname: '127.0.0.1',\n      port: 3105,\n      path: '/deliver',\n      method: 'POST',\n      headers: {\n        'Content-Type': 'application/json',\n        'Content-Length': String(body.length),\n      },\n    }, (res) => {\n      const chunks = [];\n      res.on('data', c => chunks.push(c));\n      res.on('end', () => {\n        const text = Buffer.concat(chunks).toString();\n        let data;\n        try { data = JSON.parse(text); } catch (e) { data = { raw: text }; }\n        if (res.statusCode >= 400) {\n          reject(new Error('Slack helper HTTP ' + res.statusCode + ': ' + text));\n          return;\n        }\n        resolve(data);\n      });\n    });\n    req.on('error', reject);\n    req.setTimeout(180000, () => { req.destroy(); reject(new Error('Slack helper timeout')); });\n    req.write(body);\n    req.end();\n  });\n}\n\nconst result = await postJson('http://127.0.0.1:3105/deliver', $input.first().json);\nreturn [{ json: result }];\n"
+      },
+      "id": "cb-slack-exec",
+      "name": "Deliver to Slack",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        960,
+        50
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Telegram delivery: login to backend, download DOCX, send via Telegram API\nconst https = require('https');\nconst http = require('http');\n\nconst BACKEND_API_URL = process.env.BACKEND_API_URL || 'http://172.17.0.1:3001';\nconst LOGIN_EMAIL = process.env.RAGM_LOGIN_EMAIL || 'admin@acme.com';\nconst LOGIN_PASSWORD = process.env.RAGM_LOGIN_PASSWORD || 'admin123';\n\nfunction parseUrl(s) {\n  const m = s.match(/^(https?):\\/\\/([^\\/:]+)(?::(\\d+))?(\\/.*)$/);\n  if (!m) return { protocol: 'https:', hostname: s, port: null, path: '/' };\n  return { protocol: m[1] + ':', hostname: m[2], port: m[3] || null, path: m[4] || '/' };\n}\n\nfunction nativeRequest(method, reqUrl, headers, body) {\n  return new Promise((resolve, reject) => {\n    const opts = parseUrl(reqUrl);\n    const mod = opts.protocol === 'https:' ? https : http;\n    const req = mod.request({ hostname: opts.hostname, port: opts.port, path: opts.path, method, headers: headers || {} }, (res) => {\n      if (res.statusCode === 301 || res.statusCode === 302) { nativeRequest(method, res.headers.location, headers, body).then(resolve).catch(reject); return; }\n      const chunks = []; res.on('data', c => chunks.push(c));\n      res.on('end', () => resolve({ statusCode: res.statusCode, body: Buffer.concat(chunks) }));\n    });\n    req.on('error', reject); req.setTimeout(120000, () => { req.destroy(); reject(new Error('timeout')); });\n    if (body) req.write(body); req.end();\n  });\n}\n\nconst input = $input.first().json;\nconst replyInfo = input.platform_reply_info || {};\nconst chatId = replyInfo.chat_id;\nconst BOT_TOKEN = replyInfo.bot_token || '';\n\nif (!chatId || !BOT_TOKEN) {\n  return [{ json: { delivered: false, reason: 'missing chat_id or bot_token' } }];\n}\n\nif (input.status === 'completed' && input.project_id) {\n  const tenantSlug = input.tenant_slug || 'acme';\n  const loginRes = await nativeRequest('POST', BACKEND_API_URL + '/api/auth/login',\n    { 'Content-Type': 'application/json', 'x-tenant-slug': tenantSlug },\n    Buffer.from(JSON.stringify({ email: LOGIN_EMAIL, password: LOGIN_PASSWORD }))\n  );\n  const token = JSON.parse(loginRes.body.toString()).access_token;\n  const dlRes = await nativeRequest('GET',\n    BACKEND_API_URL + '/api/projects/' + input.project_id + '/quotation/download-file?format=docx',\n    { 'Authorization': 'Bearer ' + token, 'x-tenant-slug': tenantSlug }, null\n  );\n  if (dlRes.statusCode !== 200) throw new Error('Download failed');\n  const fileData = dlRes.body;\n  const fname = input.file_name || 'quotation.docx';\n  const boundary = '----cbTg' + Date.now();\n  const CRLF = '\\r\\n';\n  const parts = [];\n  parts.push(Buffer.from('--' + boundary + CRLF + 'Content-Disposition: form-data; name=\"chat_id\"' + CRLF + CRLF + String(chatId) + CRLF));\n  parts.push(Buffer.from('--' + boundary + CRLF + 'Content-Disposition: form-data; name=\"caption\"' + CRLF + CRLF + 'Your quotation is ready!' + CRLF));\n  parts.push(Buffer.from('--' + boundary + CRLF + 'Content-Disposition: form-data; name=\"document\"; filename=\"' + fname + '\"' + CRLF + 'Content-Type: application/vnd.openxmlformats-officedocument.wordprocessingml.document' + CRLF + CRLF));\n  parts.push(fileData);\n  parts.push(Buffer.from(CRLF + '--' + boundary + '--' + CRLF));\n  const body = Buffer.concat(parts);\n  await nativeRequest('POST', 'https://api.telegram.org/bot' + BOT_TOKEN + '/sendDocument',\n    { 'Content-Type': 'multipart/form-data; boundary=' + boundary, 'Content-Length': String(body.length) }, body\n  );\n} else if (input.status === 'failed') {\n  await nativeRequest('POST', 'https://api.telegram.org/bot' + BOT_TOKEN + '/sendMessage',\n    { 'Content-Type': 'application/json' },\n    Buffer.from(JSON.stringify({ chat_id: chatId, text: 'Quotation failed. Step: ' + (input.error_step || '?') + ' Error: ' + (input.error_message || '?') }))\n  );\n}\n\nreturn [{ json: { delivered: true, platform: 'telegram' } }];\n"
+      },
+      "id": "cb-telegram-006",
+      "name": "Telegram Delivery",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        250
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// WhatsApp delivery via WAHA API (text with download link)\nconst input = $input.first().json;\nconst replyInfo = input.platform_reply_info || {};\nconst senderPhone = replyInfo.sender_phone || null;\nconst chatId = replyInfo.chat_id || (senderPhone ? senderPhone + '@c.us' : null);\n\nif (!chatId) {\n  return [{ json: { delivered: false, reason: 'no chat_id' } }];\n}\n\nconst WAHA_API_URL = process.env.WAHA_API_URL || 'http://172.17.0.1:3002';\nconst WAHA_API_KEY = process.env.WAHA_API_KEY || '';\nconst WAHA_SESSION = process.env.WAHA_SESSION || 'default';\n\nconst sendText = async (text) => {\n  await this.helpers.httpRequest({\n    method: 'POST', url: WAHA_API_URL + '/api/sendText',\n    headers: { 'X-Api-Key': WAHA_API_KEY, 'Content-Type': 'application/json' },\n    body: { session: WAHA_SESSION, chatId, text }, json: true, timeout: 15000,\n  });\n};\n\nif (input.status === 'completed') {\n  await sendText('Your quotation is ready.\\n\\nFile: ' + (input.file_name || 'quotation.docx') + '\\nDownload: ' + (input.download_url || 'N/A'));\n} else if (input.status === 'failed') {\n  await sendText('Quotation failed.\\nStep: ' + (input.error_step || '?') + '\\nError: ' + (input.error_message || '?'));\n}\n\nif (senderPhone) {\n  const fs = require('fs');\n  try {\n    const c = JSON.parse(fs.readFileSync('/home/node/.n8n/whatsapp_conversations.json', 'utf8'));\n    c[senderPhone] = { state: 'new' };\n    fs.writeFileSync('/home/node/.n8n/whatsapp_conversations.json', JSON.stringify(c), 'utf8');\n  } catch (e) {}\n}\n\nreturn [{ json: { delivered: true, platform: 'whatsapp' } }];\n"
+      },
+      "id": "cb-whatsapp-007",
+      "name": "WhatsApp Delivery",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        450
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.status }}",
+                    "rightValue": "completed",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "completed"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.status }}",
+                    "rightValue": "failed",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "failed"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "email-status-001",
+      "name": "Email Callback Status",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        720,
+        650
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Email callback delivery: download generated DOCX and attach it to SMTP email.\nconst https = require('https');\nconst http = require('http');\n\nconst BACKEND_API_URL = process.env.BACKEND_API_URL || 'http://172.17.0.1:3001';\nconst LOGIN_EMAIL = process.env.RAGM_LOGIN_EMAIL || 'admin@acme.com';\nconst LOGIN_PASSWORD = process.env.RAGM_LOGIN_PASSWORD || 'admin123';\nconst DEFAULT_FROM = process.env.EMAIL_DEFAULT_FROM || 'Simplex Quotation Generator <rgmruh11@gmail.com>';\n\nfunction parseUrl(s) {\n  const m = String(s || '').match(/^(https?):\\/\\/([^\\/:]+)(?::(\\d+))?(\\/.*)$/);\n  if (!m) return { protocol: 'https:', hostname: s, port: null, path: '/' };\n  return { protocol: m[1] + ':', hostname: m[2], port: m[3] || null, path: m[4] || '/' };\n}\nfunction nativeRequest(method, reqUrl, headers, body) {\n  return new Promise((resolve, reject) => {\n    const opts = parseUrl(reqUrl);\n    const mod = opts.protocol === 'https:' ? https : http;\n    const req = mod.request({ hostname: opts.hostname, port: opts.port, path: opts.path, method, headers: headers || {} }, (res) => {\n      if (res.statusCode === 301 || res.statusCode === 302) { nativeRequest(method, res.headers.location, headers, body).then(resolve).catch(reject); return; }\n      const chunks = [];\n      res.on('data', c => chunks.push(c));\n      res.on('end', () => resolve({ statusCode: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) }));\n    });\n    req.on('error', reject);\n    req.setTimeout(120000, () => { req.destroy(); reject(new Error('request timeout')); });\n    if (body) req.write(body);\n    req.end();\n  });\n}\nfunction replyInfo(input) {\n  const raw = input.platform_reply_info || {};\n  if (typeof raw === 'string') { try { return JSON.parse(raw); } catch (e) { return {}; } }\n  return raw;\n}\n\nconst input = $input.first().json;\nconst info = replyInfo(input);\nconst toEmail = info.email || info.sender_email || info.to || null;\nif (!toEmail) throw new Error('Missing email in platform_reply_info');\nif (input.status !== 'completed') throw new Error('Prepare Email Attachment only handles completed callbacks');\nif (!input.project_id) throw new Error('Missing project_id for email delivery');\n\nconst tenantSlug = input.tenant_slug || 'acme';\nconst loginRes = await nativeRequest('POST', BACKEND_API_URL + '/api/auth/login',\n  { 'Content-Type': 'application/json', 'x-tenant-slug': tenantSlug },\n  Buffer.from(JSON.stringify({ email: LOGIN_EMAIL, password: LOGIN_PASSWORD }))\n);\nif (loginRes.statusCode >= 400) throw new Error('Backend login failed: HTTP ' + loginRes.statusCode);\nconst token = JSON.parse(loginRes.body.toString()).access_token;\nif (!token) throw new Error('Backend login failed: no access_token');\n\nconst dlRes = await nativeRequest('GET',\n  BACKEND_API_URL + '/api/projects/' + input.project_id + '/quotation/download-file?format=docx',\n  { Authorization: 'Bearer ' + token, 'x-tenant-slug': tenantSlug },\n  null\n);\nif (dlRes.statusCode !== 200) throw new Error('Quotation download failed: HTTP ' + dlRes.statusCode + ' ' + dlRes.body.toString().slice(0, 300));\nconst fileName = input.file_name || 'quotation.docx';\nconst quotationFile = await this.helpers.prepareBinaryData(\n  dlRes.body,\n  fileName,\n  'application/vnd.openxmlformats-officedocument.wordprocessingml.document'\n);\n\nreturn [{\n  json: {\n    toEmail,\n    fromEmail: info.smtp_from || DEFAULT_FROM,\n    subject: 'Your quotation is ready',\n    html: 'Hello,<br><br>Your quotation is ready. The DOCX file is attached to this email.<br><br>Regards,<br>RAGM Quotations',\n  },\n  binary: { quotation_file: quotationFile },\n}];\n"
+      },
+      "id": "email-prepare-attachment-002",
+      "name": "Prepare Email Attachment",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        580
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "email",
+        "operation": "send",
+        "fromEmail": "={{ $json.fromEmail }}",
+        "toEmail": "={{ $json.toEmail }}",
+        "subject": "={{ $json.subject }}",
+        "emailFormat": "html",
+        "html": "={{ $json.html }}",
+        "options": {
+          "attachments": "quotation_file",
+          "appendAttribution": false
+        }
+      },
+      "id": "email-send-completed-003",
+      "name": "Send Quotation Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1200,
+        580
+      ],
+      "credentials": {
+        "smtp": {
+          "id": "gmail-smtp-ragm-email",
+          "name": "Gmail SMTP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare failure email for an email-platform pipeline callback.\nconst input = $input.first().json;\nconst raw = input.platform_reply_info || {};\nlet info = raw;\nif (typeof raw === 'string') { try { info = JSON.parse(raw); } catch (e) { info = {}; } }\nconst toEmail = info.email || info.sender_email || info.to || null;\nif (!toEmail) throw new Error('Missing email in platform_reply_info');\nconst detail = input.error_message || 'The quotation pipeline failed before a document was generated.';\nconst step = input.error_step || 'quotation_generation';\nreturn [{ json: {\n  toEmail,\n  fromEmail: info.smtp_from || (process.env.EMAIL_DEFAULT_FROM || 'Simplex Quotation Generator <rgmruh11@gmail.com>'),\n  subject: 'Quotation generation failed',\n  html: 'Hello,<br><br>We could not generate your quotation.<br><br><strong>Step:</strong> ' + step + '<br><strong>Error:</strong> ' + String(detail).replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c])) + '<br><br>Please review the files/details and submit the request again.',\n} }];\n"
+      },
+      "id": "email-prepare-failed-004",
+      "name": "Prepare Failure Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "email",
+        "operation": "send",
+        "fromEmail": "={{ $json.fromEmail }}",
+        "toEmail": "={{ $json.toEmail }}",
+        "subject": "={{ $json.subject }}",
+        "emailFormat": "html",
+        "html": "={{ $json.html }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "email-send-failed-005",
+      "name": "Send Failure Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1200,
+        760
+      ],
+      "credentials": {
+        "smtp": {
+          "id": "gmail-smtp-ragm-email",
+          "name": "Gmail SMTP"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Validate Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Token": {
+      "main": [
+        [
+          {
+            "node": "Switch on Platform",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch on Platform": {
+      "main": [
+        [
+          {
+            "node": "Prepare Slack Params",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram Delivery",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "WhatsApp Delivery",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Email Callback Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Slack Params": {
+      "main": [
+        [
+          {
+            "node": "Deliver to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Callback Status": {
+      "main": [
+        [
+          {
+            "node": "Prepare Email Attachment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Failure Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Prepare Email Attachment": {
+      "main": [
+        [
+          {
+            "node": "Send Quotation Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Failure Email": {
+      "main": [
+        [
+          {
+            "node": "Send Failure Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "description": "Platform-agnostic callback dispatcher. Downloads quotation from backend API and delivers to the originating platform (Slack, Telegram, WhatsApp)."
+  },
+  "pinData": {},
+  "tags": []
+}

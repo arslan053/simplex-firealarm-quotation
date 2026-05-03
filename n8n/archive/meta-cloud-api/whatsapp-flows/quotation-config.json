@@ -1,0 +1,67 @@
+{
+  "version": "3.1",
+  "screens": [
+    {
+      "id": "QUOTATION_CONFIG",
+      "title": "Quotation Configuration",
+      "terminal": true,
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextHeading",
+            "text": "Configure your quotation"
+          },
+          {
+            "type": "Dropdown",
+            "label": "Service Option",
+            "name": "service_option",
+            "required": true,
+            "init-value": "1",
+            "data-source": [
+              { "id": "1", "title": "Option 1 - Supply Only" },
+              { "id": "2", "title": "Option 2 - Supply & Install" },
+              { "id": "3", "title": "Option 3 - Supply, Install & Commission" }
+            ]
+          },
+          {
+            "type": "TextInput",
+            "label": "Margin Percent (%)",
+            "name": "margin_percent",
+            "required": false,
+            "input-type": "number",
+            "helper-text": "Default: 0"
+          },
+          {
+            "type": "TextArea",
+            "label": "Payment Terms",
+            "name": "payment_terms",
+            "required": false,
+            "helper-text": "Optional payment terms text"
+          },
+          {
+            "type": "TextInput",
+            "label": "Subject",
+            "name": "subject",
+            "required": false,
+            "input-type": "text",
+            "helper-text": "Optional quotation subject line"
+          },
+          {
+            "type": "Footer",
+            "label": "Generate Quotation",
+            "on-click-action": {
+              "name": "complete",
+              "payload": {
+                "service_option": "${form.service_option}",
+                "margin_percent": "${form.margin_percent}",
+                "payment_terms": "${form.payment_terms}",
+                "subject": "${form.subject}"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

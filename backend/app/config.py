@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     MOYASAR_SECRET_KEY: str = ""
     MOYASAR_WEBHOOK_SECRET: str = ""
+    WAHA_INTERNAL_URL: str = "http://172.17.0.1:3002"
+    WAHA_API_KEY: str = ""
+    N8N_PIPELINE_CALLBACK_URL: str = ""
+    N8N_PIPELINE_CALLBACK_TOKEN: str = "ragm-pipeline-callback-2026"
 
     @property
     def cors_origins_list(self) -> list[str]:

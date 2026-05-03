@@ -30,6 +30,8 @@ from app.modules.pipeline.router import router as pipeline_router
 from app.modules.company_settings.router import router as company_settings_router
 from app.modules.billing.router import router as billing_router
 from app.modules.billing.webhook_router import webhook_router as billing_webhook_router
+from app.modules.integrations.whatsapp_router import router as whatsapp_integration_router
+from app.modules.integrations.generic_router import router as generic_integration_router
 
 
 @asynccontextmanager
@@ -80,6 +82,8 @@ app.include_router(pipeline_router)
 app.include_router(company_settings_router)
 app.include_router(billing_router)
 app.include_router(billing_webhook_router)
+app.include_router(whatsapp_integration_router)
+app.include_router(generic_integration_router)
 
 
 @app.get("/api/health")

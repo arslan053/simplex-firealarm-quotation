@@ -1,0 +1,65 @@
+{
+  "name": "Core Quotation Sub-Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            { "name": "tenant_slug", "type": "string" },
+            { "name": "backend_url", "type": "string" },
+            { "name": "credentials", "type": "string" },
+            { "name": "source_platform", "type": "string" },
+            { "name": "platform_reply_info", "type": "string" },
+            { "name": "client_data", "type": "string" },
+            { "name": "project_data", "type": "string" },
+            { "name": "quotation_config", "type": "string" },
+            { "name": "boq_media_type", "type": "string" },
+            { "name": "callback_url", "type": "string" }
+          ]
+        }
+      },
+      "id": "sub-trigger-001",
+      "name": "Sub-Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Login to backend and return access token\nconst input = $input.first().json;\nconst creds = JSON.parse(input.credentials || '{}');\nconst backendUrl = input.backend_url;\nconst tenantSlug = input.tenant_slug;\n\nconst resp = await this.helpers.httpRequest({\n  method: 'POST',\n  url: backendUrl + '/api/auth/login',\n  headers: {\n    'Content-Type': 'application/json',\n    'x-tenant-slug': tenantSlug,\n  },\n  body: { email: creds.email, password: creds.password },\n  json: true,\n  timeout: 15000,\n});\n\nif (!resp || !resp.access_token) {\n  throw new Error('Login failed: no access_token returned');\n}\n\n// Pass through all input + binary data\nreturn [{ json: { ...input, access_token: resp.access_token }, binary: $input.first().binary }];\n"
+      },
+      "id": "sub-login-002",
+      "name": "Login",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [240, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Upload to generic endpoint via manual multipart (no external modules)\nconst input = $input.first().json;\nconst token = input.access_token;\nconst backendUrl = input.backend_url;\nconst tenantSlug = input.tenant_slug;\n\nconst binaryData = $input.first().binary || {};\nconst boqBinary = binaryData.boq_file;\nconst specBinary = binaryData.spec_file;\n\nif (!boqBinary || !specBinary) {\n  throw new Error('Missing binary file inputs (boq_file, spec_file)');\n}\n\nconst boundary = '----n8nUpload' + Date.now();\nconst CRLF = '\\r\\n';\n\nfunction fieldPart(name, value) {\n  return Buffer.from('--' + boundary + CRLF + 'Content-Disposition: form-data; name=\"' + name + '\"' + CRLF + CRLF + value + CRLF);\n}\nfunction filePart(name, filename, contentType, data) {\n  const header = '--' + boundary + CRLF + 'Content-Disposition: form-data; name=\"' + name + '\"; filename=\"' + filename + '\"' + CRLF + 'Content-Type: ' + contentType + CRLF + CRLF;\n  return [Buffer.from(header), data, Buffer.from(CRLF)];\n}\n\nconst parts = [];\n\n// File parts\nconst boqData = Buffer.from(boqBinary.data, 'base64');\nconst boqName = boqBinary.fileName || 'boq.xlsx';\nconst boqMime = boqBinary.mimeType || 'application/octet-stream';\nparts.push(...filePart('boq_file', boqName, boqMime, boqData));\n\nconst specData = Buffer.from(specBinary.data, 'base64');\nconst specName = specBinary.fileName || 'specification.pdf';\nconst specMime = specBinary.mimeType || 'application/pdf';\nparts.push(...filePart('spec_file', specName, specMime, specData));\n\n// Text fields\nparts.push(fieldPart('source_platform', input.source_platform || 'unknown'));\nparts.push(fieldPart('platform_reply_info', input.platform_reply_info || '{}'));\nparts.push(fieldPart('client_data', input.client_data || '{}'));\nparts.push(fieldPart('project_data', input.project_data || '{}'));\nparts.push(fieldPart('quotation_config', input.quotation_config || '{}'));\nparts.push(fieldPart('boq_media_type', input.boq_media_type || 'xlsx'));\nif (input.callback_url) {\n  parts.push(fieldPart('callback_url', input.callback_url));\n}\n\nparts.push(Buffer.from('--' + boundary + '--' + CRLF));\n\nconst body = Buffer.concat(parts);\n\nconst resp = await this.helpers.httpRequest({\n  method: 'POST',\n  url: backendUrl + '/api/integrations/generic/quotation/start',\n  headers: {\n    Authorization: 'Bearer ' + token,\n    'x-tenant-slug': tenantSlug,\n    'Content-Type': 'multipart/form-data; boundary=' + boundary,\n  },\n  body: body,\n  json: true,\n  timeout: 120000,\n});\n\nreturn [{ json: { project_id: resp.project_id, pipeline_run_id: resp.pipeline_run_id } }];\n"
+      },
+      "id": "sub-upload-003",
+      "name": "Upload to Generic Endpoint",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 200]
+    }
+  ],
+  "connections": {
+    "Sub-Workflow Trigger": {
+      "main": [[{ "node": "Login", "type": "main", "index": 0 }]]
+    },
+    "Login": {
+      "main": [[{ "node": "Upload to Generic Endpoint", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "description": "Layer 2: Reusable sub-workflow. Authenticates to the RAGM backend and uploads BOQ + spec files via the generic integration endpoint. Called by platform-specific workflows (Layer 1) via Execute Workflow node. Callback routing is handled by the Callback Router (Layer 3).",
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "tags": []
+}

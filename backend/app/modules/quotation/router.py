@@ -111,6 +111,38 @@ async def download_quotation(
     return result
 
 
+@router.get("/download-file")
+async def download_quotation_file(
+    project_id: str,
+    request: Request,
+    format: str = Query("docx", pattern="^(docx|xlsx)$"),
+    db: AsyncSession = Depends(get_tenant_db),
+    user: UserContext = Depends(get_current_user),
+):
+    """Return the actual quotation file bytes for direct download."""
+    tenant = request.state.tenant
+    tenant_id = uuid.UUID(tenant["id"])
+    pid = uuid.UUID(project_id)
+
+    service = QuotationService(db)
+    file_data = await service.get_file_bytes(tenant_id, pid, fmt=format)
+    if file_data is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No quotation found for this project.",
+        )
+    file_bytes, file_name = file_data
+    if format == "xlsx":
+        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    else:
+        media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    return Response(
+        content=file_bytes,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{file_name}"'},
+    )
+
+
 @router.get("/preview")
 async def preview_quotation(
     project_id: str,

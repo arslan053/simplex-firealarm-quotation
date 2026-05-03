@@ -1,0 +1,441 @@
+{
+  "id": "slack-quotation-bot",
+  "name": "Slack Quotation Bot - DM",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "slack-quotation-bot",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "slack-webhook-001",
+      "name": "Slack Events Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -1200,
+        200
+      ],
+      "webhookId": "slack-quotation-bot"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse incoming Slack Events API and Interactivity payloads.\nconst rawBody = $input.first().json.body || $input.first().json;\nlet body = rawBody;\n\nif (typeof rawBody.payload === 'string') {\n  try { body = JSON.parse(rawBody.payload); } catch (e) { body = rawBody; }\n} else if (rawBody.payload && typeof rawBody.payload === 'object') {\n  body = rawBody.payload;\n}\n\nif (body.type === 'url_verification') {\n  return [{ json: { routeType: 'challenge', challenge: body.challenge } }];\n}\n\nif (body.type === 'block_actions') {\n  const action = (body.actions || [])[0] || {};\n  return [{ json: {\n    routeType: 'event',\n    interactionType: 'block_actions',\n    actionId: action.action_id || '',\n    triggerId: body.trigger_id || '',\n    userId: body.user?.id || '',\n    channelId: body.channel?.id || body.container?.channel_id || '',\n    text: '',\n    messageType: 'interaction',\n    fileUrl: '',\n    fileName: '',\n    fileMimeType: '',\n    allFiles: [],\n  } }];\n}\n\nif (body.type === 'view_submission') {\n  const meta = (() => { try { return JSON.parse(body.view?.private_metadata || '{}'); } catch (e) { return {}; } })();\n  const values = body.view?.state?.values || {};\n  function field(blockId, actionId) {\n    const item = values[blockId]?.[actionId] || {};\n    if (Object.prototype.hasOwnProperty.call(item, 'value')) return item.value;\n    if (item.selected_option) return item.selected_option.value;\n    if (item.selected_date) return item.selected_date;\n    return '';\n  }\n  return [{ json: {\n    routeType: 'event',\n    interactionType: 'view_submission',\n    callbackId: body.view?.callback_id || '',\n    userId: body.user?.id || meta.userId || '',\n    channelId: meta.channelId || '',\n    messageType: 'modal_submission',\n    modalValues: {\n      client_name: field('client_name_block', 'client_name'),\n      company_name: field('company_name_block', 'company_name'),\n      email: field('email_block', 'email'),\n      phone: field('phone_block', 'phone'),\n      address: field('address_block', 'address'),\n      project_name: field('project_name_block', 'project_name'),\n      city: field('city_block', 'city'),\n      country: field('country_block', 'country'),\n      due_date: field('due_date_block', 'due_date'),\n      service_option: field('service_option_block', 'service_option'),\n      margin_percent: field('margin_block', 'margin_percent'),\n      payment_terms_text: field('payment_terms_block', 'payment_terms_text'),\n      subject: field('subject_block', 'subject'),\n    },\n  } }];\n}\n\nif (body.type !== 'event_callback' || !body.event) {\n  return [{ json: { routeType: 'skip' } }];\n}\n\nconst event = body.event;\nif (event.bot_id) {\n  return [{ json: { routeType: 'skip' } }];\n}\nif (event.subtype && event.subtype !== 'file_share') {\n  return [{ json: { routeType: 'skip' } }];\n}\nif (event.channel_type && event.channel_type !== 'im') {\n  return [{ json: { routeType: 'skip' } }];\n}\n\nconst files = event.files || [];\nlet messageType = 'text';\nlet fileUrl = '';\nlet fileName = '';\nlet fileMimeType = '';\nlet allFiles = [];\n\nif (files.length > 0) {\n  const file = files[0];\n  fileUrl = file.url_private_download || file.url_private || '';\n  fileName = file.name || 'file';\n  fileMimeType = file.mimetype || '';\n  allFiles = files.map(f => ({\n    url: f.url_private_download || f.url_private || '',\n    name: f.name || 'file',\n    mimetype: f.mimetype || '',\n  }));\n  messageType = fileMimeType.startsWith('image/') ? 'image' : 'document';\n}\n\nreturn [{ json: {\n  routeType: 'event',\n  interactionType: 'message',\n  userId: event.user || '',\n  channelId: event.channel || '',\n  text: event.text || '',\n  messageType,\n  fileUrl,\n  fileName,\n  fileMimeType,\n  allFiles,\n} }];"
+      },
+      "id": "slack-parse-002",
+      "name": "Parse Event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -960,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.challenge }}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/plain"
+              }
+            ]
+          }
+        }
+      },
+      "id": "slack-challenge-ack-013",
+      "name": "Respond Challenge",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -480,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "noData",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "slack-ack-012",
+      "name": "Acknowledge Slack",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -480,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.routeType }}",
+                    "rightValue": "challenge",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "challenge"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.routeType }}",
+                    "rightValue": "event",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "event"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "slack-routetype-003",
+      "name": "Route Type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        -720,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// Layer 1: Slack-specific conversation state machine\n// Collects BOQ/spec via DM, then opens a modal for structured details.\n// On completion, outputs execute_pipeline with file URLs.\n// ============================================================\n\nconst SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN || '';\n\nconst input = $input.first().json;\nif (input.routeType === 'skip') {\n  return [{ json: { action: 'no_op' } }];\n}\n\nconst {\n  userId, channelId, text: rawText, messageType, fileUrl, fileName,\n  fileMimeType, allFiles, interactionType, actionId, triggerId,\n  callbackId, modalValues,\n} = input;\nconst text = (rawText || '').trim();\nconst textLower = text.toLowerCase();\n\nconst fs = require('fs');\nconst STATE_FILE = '/home/node/.n8n/slack_conversations.json';\nfunction loadConvs() { try { return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); } catch(e) { return {}; } }\nfunction saveConvs(c) { fs.writeFileSync(STATE_FILE, JSON.stringify(c), 'utf8'); }\nfunction clean(v) { return String(v || '').trim(); }\nfunction isEmail(v) { return !v || /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(v); }\nfunction todayIso() { return new Date().toISOString().split('T')[0]; }\nfunction isCancelCommand(v) { return ['cancel', 'stop', 'restart'].includes(String(v || '').trim().toLowerCase()); }\nfunction resetConversation(channelId) { return { state: 'new', channel_id: channelId || undefined }; }\n\nfunction detailsButton() {\n  return [{\n    type: 'actions',\n    elements: [{\n      type: 'button',\n      text: { type: 'plain_text', text: 'Enter quotation details' },\n      style: 'primary',\n      action_id: 'open_quotation_details_modal',\n    }],\n  }];\n}\n\nfunction quotationModal(conv, userId, channelId) {\n  return {\n    type: 'modal',\n    callback_id: 'quotation_details_modal',\n    private_metadata: JSON.stringify({ userId, channelId }),\n    title: { type: 'plain_text', text: 'Quotation details' },\n    submit: { type: 'plain_text', text: 'Submit' },\n    close: { type: 'plain_text', text: 'Cancel' },\n    blocks: [\n      { type: 'input', block_id: 'client_name_block', label: { type: 'plain_text', text: 'Client name' }, element: { type: 'plain_text_input', action_id: 'client_name', placeholder: { type: 'plain_text', text: 'e.g. Ahmed Khan' }, max_length: 120 } },\n      { type: 'input', block_id: 'company_name_block', label: { type: 'plain_text', text: 'Company name' }, element: { type: 'plain_text_input', action_id: 'company_name', placeholder: { type: 'plain_text', text: 'e.g. ACME Trading' }, max_length: 160 } },\n      { type: 'input', block_id: 'email_block', optional: true, label: { type: 'plain_text', text: 'Email' }, element: { type: 'email_text_input', action_id: 'email', placeholder: { type: 'plain_text', text: 'name@example.com' } } },\n      { type: 'input', block_id: 'phone_block', optional: true, label: { type: 'plain_text', text: 'Phone' }, element: { type: 'plain_text_input', action_id: 'phone', placeholder: { type: 'plain_text', text: '+966...' }, max_length: 40 } },\n      { type: 'input', block_id: 'address_block', optional: true, label: { type: 'plain_text', text: 'Address' }, element: { type: 'plain_text_input', action_id: 'address', placeholder: { type: 'plain_text', text: 'Optional' }, max_length: 220 } },\n      { type: 'divider' },\n      { type: 'input', block_id: 'project_name_block', label: { type: 'plain_text', text: 'Project name' }, element: { type: 'plain_text_input', action_id: 'project_name', placeholder: { type: 'plain_text', text: 'e.g. Riyadh Office Tower' }, max_length: 180 } },\n      { type: 'input', block_id: 'city_block', label: { type: 'plain_text', text: 'City' }, element: { type: 'plain_text_input', action_id: 'city', initial_value: 'Riyadh', max_length: 100 } },\n      { type: 'input', block_id: 'country_block', label: { type: 'plain_text', text: 'Country' }, element: { type: 'plain_text_input', action_id: 'country', initial_value: 'KSA', max_length: 100 } },\n      { type: 'input', block_id: 'due_date_block', label: { type: 'plain_text', text: 'Due date' }, element: { type: 'datepicker', action_id: 'due_date', initial_date: todayIso(), placeholder: { type: 'plain_text', text: 'Select date' } } },\n      { type: 'divider' },\n      { type: 'input', block_id: 'service_option_block', label: { type: 'plain_text', text: 'Service option' }, element: { type: 'static_select', action_id: 'service_option', initial_option: { text: { type: 'plain_text', text: 'Supply & Install' }, value: '2' }, options: [\n        { text: { type: 'plain_text', text: 'Supply Only' }, value: '1' },\n        { text: { type: 'plain_text', text: 'Supply & Install' }, value: '2' },\n        { text: { type: 'plain_text', text: 'Supply, Install & Commission' }, value: '3' },\n      ] } },\n      { type: 'input', block_id: 'margin_block', label: { type: 'plain_text', text: 'Margin percent' }, element: { type: 'number_input', action_id: 'margin_percent', is_decimal_allowed: true, initial_value: '0', min_value: '0', max_value: '100' } },\n      { type: 'input', block_id: 'payment_terms_block', optional: true, label: { type: 'plain_text', text: 'Payment terms' }, element: { type: 'plain_text_input', action_id: 'payment_terms_text', multiline: true, placeholder: { type: 'plain_text', text: 'Optional payment terms' }, max_length: 1200 } },\n      { type: 'input', block_id: 'subject_block', optional: true, label: { type: 'plain_text', text: 'Quotation subject' }, element: { type: 'plain_text_input', action_id: 'subject', placeholder: { type: 'plain_text', text: 'Optional subject line' }, max_length: 180 } },\n    ],\n  };\n}\n\nfunction validateDetails(v) {\n  const errors = [];\n  const required = [\n    ['client_name', 'Client name'], ['company_name', 'Company name'],\n    ['project_name', 'Project name'], ['city', 'City'], ['country', 'Country'], ['due_date', 'Due date'],\n  ];\n  for (const [key, label] of required) {\n    if (!clean(v[key])) errors.push(label + ' is required.');\n  }\n  if (v.email && !isEmail(clean(v.email))) errors.push('Email must be valid.');\n  if (v.due_date && !/^\\d{4}-\\d{2}-\\d{2}$/.test(clean(v.due_date))) errors.push('Due date must be YYYY-MM-DD.');\n  const svc = parseInt(v.service_option, 10);\n  if (![1, 2, 3].includes(svc)) errors.push('Service option is invalid.');\n  const margin = Number(v.margin_percent);\n  if (!Number.isFinite(margin) || margin < 0 || margin > 100) errors.push('Margin must be between 0 and 100.');\n  return errors;\n}\n\nconst allConvs = loadConvs();\nif (!allConvs[userId]) allConvs[userId] = { state: 'new' };\nconst conv = allConvs[userId];\nif (channelId) conv.channel_id = channelId;\nconst effectiveChannelId = channelId || conv.channel_id;\nconst state = conv.state;\n\nlet action = 'no_op';\nlet payload = {};\n\nif (messageType === 'text' && isCancelCommand(textLower)) {\n  if (state === 'executing') {\n    action = 'send_message';\n    payload = { text: 'Your quotation is already being generated, so it cannot be cancelled now. I will send the DOCX here when it is ready, or an error message if generation fails.' };\n  } else if (state === 'new' || state === 'awaiting_confirm') {\n    allConvs[userId] = resetConversation(effectiveChannelId);\n    action = 'send_message';\n    payload = { text: 'There is no active quotation request to cancel. Send me a message anytime to start a new one.' };\n  } else {\n    allConvs[userId] = resetConversation(effectiveChannelId);\n    action = 'send_message';\n    payload = { text: 'Quotation request cancelled. Send me a message anytime to start again.' };\n  }\n  saveConvs(allConvs);\n  return [{ json: { action, payload, channelId: effectiveChannelId, config: { SLACK_BOT_TOKEN } } }];\n}\n\nif (interactionType === 'block_actions' && actionId === 'open_quotation_details_modal') {\n  if (!conv.spec_file_url) {\n    action = 'send_message';\n    payload = { text: 'Please send your Specification PDF before entering quotation details.' };\n  } else {\n    action = 'open_modal';\n    payload = { trigger_id: triggerId, view: quotationModal(conv, userId, effectiveChannelId) };\n    conv.state = 'awaiting_modal_submission';\n  }\n  saveConvs(allConvs);\n  return [{ json: { action, payload, channelId: effectiveChannelId, config: { SLACK_BOT_TOKEN } } }];\n}\n\nif (interactionType === 'view_submission' && callbackId === 'quotation_details_modal') {\n  if (!conv.spec_file_url || !['awaiting_modal_open', 'awaiting_modal_submission'].includes(conv.state)) {\n    allConvs[userId] = resetConversation(effectiveChannelId);\n    action = 'send_message';\n    payload = { text: 'This quotation request is no longer active. Send me a message anytime to start a new one.' };\n    saveConvs(allConvs);\n    return [{ json: { action, payload, channelId: effectiveChannelId, config: { SLACK_BOT_TOKEN } } }];\n  }\n  const v = modalValues || {};\n  const errors = validateDetails(v);\n  if (errors.length) {\n    action = 'send_message';\n    payload = { text: 'Some details need attention:\\n- ' + errors.join('\\n- ') + '\\n\\nUse the button below to submit the corrected details.', blocks: detailsButton() };\n    conv.state = 'awaiting_modal_open';\n  } else {\n    conv.client_data = {\n      name: clean(v.client_name),\n      company_name: clean(v.company_name),\n      email: clean(v.email) || null,\n      phone: clean(v.phone) || null,\n      address: clean(v.address) || null,\n    };\n    conv.project_data = {\n      project_name: clean(v.project_name),\n      city: clean(v.city),\n      country: clean(v.country),\n      due_date: clean(v.due_date),\n    };\n    conv.quotation_config = {\n      service_option: parseInt(v.service_option, 10),\n      margin_percent: Number(v.margin_percent),\n      payment_terms_text: clean(v.payment_terms_text) || null,\n      subject: clean(v.subject) || null,\n    };\n    conv.state = 'executing';\n    action = 'execute_pipeline';\n    payload = { userId, channelId: effectiveChannelId, conversation: JSON.parse(JSON.stringify(conv)) };\n  }\n  saveConvs(allConvs);\n  return [{ json: { action, payload, channelId: effectiveChannelId, config: { SLACK_BOT_TOKEN } } }];\n}\n\nswitch (state) {\n  case 'new': {\n    action = 'send_message';\n    payload = { text: 'Welcome! Would you like to generate a quotation?\\n\\nReply *1* for Yes\\nReply *2* for No\\n\\nYou can send *cancel* anytime before generation starts.' };\n    conv.state = 'awaiting_confirm';\n    break;\n  }\n  case 'awaiting_confirm': {\n    if (text === '1' || textLower === 'yes') {\n      action = 'send_message';\n      payload = { text: 'Please send your *BOQ file*.\\n\\nAccepted formats:\\n- Excel (.xlsx)\\n- PDF (.pdf)\\n- Images (you can send multiple)\\n\\nSend *cancel* to cancel this request.' };\n      conv.state = 'awaiting_boq';\n    } else if (text === '2' || textLower === 'no') {\n      action = 'send_message';\n      payload = { text: 'No problem! Send me a message anytime to start.' };\n      conv.state = 'new';\n    } else {\n      action = 'send_message';\n      payload = { text: 'Reply *1* for Yes or *2* for No. You can also send *cancel* to reset.' };\n    }\n    break;\n  }\n  case 'awaiting_boq': {\n    if (messageType === 'document') {\n      const isXlsx = (fileMimeType||'').includes('spreadsheet') || (fileMimeType||'').includes('excel') || (fileName||'').toLowerCase().endsWith('.xlsx');\n      const isPdf = fileMimeType === 'application/pdf' || (fileName||'').toLowerCase().endsWith('.pdf');\n      if (isXlsx || isPdf) {\n        conv.boq_media_type = isPdf ? 'pdf' : 'xlsx';\n        conv.boq_file_url = fileUrl;\n        conv.boq_filename = fileName || (isPdf ? 'boq.pdf' : 'boq.xlsx');\n        conv.boq_mime_type = fileMimeType;\n        action = 'send_message';\n        payload = { text: 'BOQ file received.\\n\\nNow send your *Specification file* (PDF only). Send *cancel* to cancel this request.' };\n        conv.state = 'awaiting_spec';\n      } else {\n        action = 'send_message';\n        payload = { text: 'Unsupported format. Please send Excel (.xlsx) or PDF (.pdf).' };\n      }\n    } else if (messageType === 'image') {\n      conv.boq_images = (allFiles||[]).map((f,i) => ({ url: f.url, name: f.name||('boq_image_'+(i+1)+'.jpg'), mimetype: f.mimetype||'image/jpeg' }));\n      conv.boq_media_type = 'images';\n      action = 'send_message';\n      payload = { text: conv.boq_images.length + ' image(s) received. Send more images, reply *done*, or send *cancel* to cancel this request.' };\n      conv.state = 'collecting_boq_images';\n    } else {\n      action = 'send_message';\n      payload = { text: 'Please send a BOQ file (Excel, PDF, or images).' };\n    }\n    break;\n  }\n  case 'collecting_boq_images': {\n    if (messageType === 'image') {\n      if (!conv.boq_images) conv.boq_images = [];\n      (allFiles||[]).forEach(f => { conv.boq_images.push({ url: f.url, name: f.name, mimetype: f.mimetype||'image/jpeg' }); });\n      action = 'send_message';\n      payload = { text: conv.boq_images.length + ' image(s) total. Send more images, reply *done*, or send *cancel* to cancel this request.' };\n    } else if (textLower === 'done') {\n      action = 'send_message';\n      payload = { text: (conv.boq_images||[]).length + ' BOQ image(s) saved.\\n\\nNow send your *Specification file* (PDF only). Send *cancel* to cancel this request.' };\n      conv.state = 'awaiting_spec';\n    } else {\n      action = 'send_message';\n      payload = { text: 'Send an image, reply *done*, or send *cancel* to cancel this request.' };\n    }\n    break;\n  }\n  case 'awaiting_spec': {\n    if (messageType === 'document' && (fileMimeType === 'application/pdf' || (fileName||'').toLowerCase().endsWith('.pdf'))) {\n      conv.spec_file_url = fileUrl;\n      conv.spec_filename = fileName || 'specification.pdf';\n      action = 'send_message';\n      payload = { text: 'Specification received. Use the button below to enter all required client, project, and quotation details in one form. After you submit the form, generation will start and the request cannot be cancelled.\\n\\nYou can still send *cancel* now if you want to restart before submitting details.', blocks: detailsButton() };\n      conv.state = 'awaiting_modal_open';\n    } else {\n      action = 'send_message';\n      payload = { text: 'Please send a PDF file for the specification, or send *cancel* to cancel this request.' };\n    }\n    break;\n  }\n  case 'awaiting_modal_open':\n  case 'awaiting_modal_submission': {\n    action = 'send_message';\n    payload = { text: 'I already sent the details button above. Please press *Enter quotation details* to continue, or send *cancel* to cancel this request.' };\n    conv.state = state === 'awaiting_modal_submission' ? 'awaiting_modal_submission' : 'awaiting_modal_open';\n    break;\n  }\n  case 'executing': {\n    action = 'send_message';\n    payload = { text: 'Your quotation is already being generated, so it cannot be cancelled now. I will send the DOCX here when it is ready, or an error message if generation fails.' };\n    break;\n  }\n  default: {\n    conv.state = 'awaiting_confirm';\n    action = 'send_message';\n    payload = { text: 'Welcome! Would you like to generate a quotation?\\n\\nReply *1* for Yes\\nReply *2* for No\\n\\nYou can send *cancel* anytime before generation starts.' };\n    break;\n  }\n}\n\nsaveConvs(allConvs);\nreturn [{ json: { action, payload, channelId: effectiveChannelId, config: { SLACK_BOT_TOKEN } } }];"
+      },
+      "id": "slack-state-006",
+      "name": "State Machine",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -240,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "send_message",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "send_message"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "execute_pipeline",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "execute_pipeline"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "open_modal",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "open_modal"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "slack-routeaction-007",
+      "name": "Route Action",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        0,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://slack.com/api/chat.postMessage",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.config.SLACK_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ channel: $json.channelId, text: $json.payload.text, blocks: $json.payload.blocks }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "slack-sendmsg-008",
+      "name": "Send Slack Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Download from Slack, login, upload to backend.\n// Uses require('https'/'http') for binary, this.helpers.httpRequest for JSON.\nconst https = require('https');\nconst http = require('http');\n\n// Manual URL parser (no URL/url module - both break in n8n sandbox)\nfunction parseUrl(s) {\n  const m = s.match(/^(https?):\\/\\/([^\\/:]+)(?::(\\d+))?(\\/.*)$/);\n  if (!m) return { protocol: 'https:', hostname: s, port: null, path: '/' };\n  return { protocol: m[1] + ':', hostname: m[2], port: m[3] || null, path: m[4] || '/' };\n}\n\nconst SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN || '';\nconst BACKEND_API_URL = process.env.BACKEND_API_URL || 'http://172.17.0.1:3001';\nconst TENANT_SLUG = process.env.RAGM_TENANT_SLUG || 'acme';\nconst LOGIN_EMAIL = process.env.RAGM_LOGIN_EMAIL || 'admin@acme.com';\nconst LOGIN_PASSWORD = process.env.RAGM_LOGIN_PASSWORD || 'admin123';\nconst CALLBACK_ROUTER_URL = process.env.CALLBACK_ROUTER_URL || 'http://172.17.0.1:5678/webhook/pipeline-callback-router';\n\nconst input = $input.first().json;\nconst payload = input.payload || {};\nconst userId = payload.userId;\nconst channelId = payload.channelId;\nconst conv = payload.conversation || {};\n\n// JSON-only calls via n8n helper (no binary IPC issue)\nconst sendMsg = async (text) => {\n  await this.helpers.httpRequest({\n    method: 'POST', url: 'https://slack.com/api/chat.postMessage',\n    headers: { Authorization: 'Bearer ' + SLACK_BOT_TOKEN, 'Content-Type': 'application/json' },\n    body: { channel: channelId, text }, json: true, timeout: 10000,\n  });\n};\n\n// Binary download via native https (avoids Task Runner IPC hang)\nconst downloadFile = (fileUrl) => new Promise((resolve, reject) => {\n  const opts = parseUrl(fileUrl);\n  const mod = opts.protocol === 'https:' ? https : http;\n  const req = mod.get({ hostname: opts.hostname, port: opts.port, path: opts.path, headers: { Authorization: 'Bearer ' + SLACK_BOT_TOKEN } }, (res) => {\n    if (res.statusCode === 301 || res.statusCode === 302) {\n      downloadFile(res.headers.location).then(resolve).catch(reject);\n      return;\n    }\n    if (res.statusCode !== 200) { reject(new Error('Download HTTP ' + res.statusCode)); return; }\n    const chunks = [];\n    res.on('data', c => chunks.push(c));\n    res.on('end', () => resolve(Buffer.concat(chunks)));\n    res.on('error', reject);\n  });\n  req.on('error', reject);\n  req.setTimeout(60000, () => { req.destroy(); reject(new Error('Download timeout')); });\n});\n\n// Multipart upload via native http (binary body, no IPC)\nconst uploadMultipart = (uploadUrl, headers, body) => new Promise((resolve, reject) => {\n  const parsed = parseUrl(uploadUrl);\n  const req = http.request({ hostname: parsed.hostname, port: parsed.port, path: parsed.path, method: 'POST', headers }, (res) => {\n    const chunks = [];\n    res.on('data', c => chunks.push(c));\n    res.on('end', () => {\n      const text = Buffer.concat(chunks).toString();\n      if (res.statusCode >= 400) { reject(new Error('Upload HTTP ' + res.statusCode + ': ' + text)); return; }\n      try { resolve(JSON.parse(text)); } catch(e) { resolve(text); }\n    });\n  });\n  req.on('error', reject);\n  req.setTimeout(120000, () => { req.destroy(); reject(new Error('Upload timeout')); });\n  req.write(body);\n  req.end();\n});\n\ntry {\n  const serviceLabels = { 1: 'Supply Only', 2: 'Supply & Install', 3: 'Supply, Install & Commission' };\n  const submittedSummary = [\n    'Details submitted successfully.',\n    '',\n    '*Client:* ' + ((conv.client_data || {}).name || 'N/A'),\n    '*Company:* ' + ((conv.client_data || {}).company_name || 'N/A'),\n    '*Project:* ' + ((conv.project_data || {}).project_name || 'N/A'),\n    '*Location:* ' + [((conv.project_data || {}).city || ''), ((conv.project_data || {}).country || '')].filter(Boolean).join(', '),\n    '*Due date:* ' + ((conv.project_data || {}).due_date || 'N/A'),\n    '*Service:* ' + (serviceLabels[(conv.quotation_config || {}).service_option] || 'N/A'),\n    '*Margin:* ' + String((conv.quotation_config || {}).margin_percent ?? 0) + '%',\n    '',\n    'I am generating your quotation now and will send the DOCX here when it is ready.',\n  ].join('\\n');\n  await sendMsg(submittedSummary);\n\n  // 1) Download files from Slack via native https\n  let boqBuffer, boqName, boqMime;\n  if (conv.boq_media_type === 'images') {\n    const first = (conv.boq_images || [])[0];\n    if (!first || !first.url) throw new Error('No BOQ image URL');\n    boqBuffer = await downloadFile(first.url);\n    boqName = first.name || 'boq_image.jpg';\n    boqMime = first.mimetype || 'image/jpeg';\n  } else {\n    if (!conv.boq_file_url) throw new Error('No BOQ file URL');\n    boqBuffer = await downloadFile(conv.boq_file_url);\n    boqName = conv.boq_filename || 'boq.xlsx';\n    boqMime = conv.boq_mime_type || 'application/octet-stream';\n  }\n  if (!conv.spec_file_url) throw new Error('No spec file URL');\n  const specBuffer = await downloadFile(conv.spec_file_url);\n  const specName = conv.spec_filename || 'specification.pdf';\n\n  // 2) Login via n8n helper (JSON only)\n  const loginResp = await this.helpers.httpRequest({\n    method: 'POST', url: BACKEND_API_URL + '/api/auth/login',\n    headers: { 'Content-Type': 'application/json', 'x-tenant-slug': TENANT_SLUG },\n    body: { email: LOGIN_EMAIL, password: LOGIN_PASSWORD },\n    json: true, timeout: 15000,\n  });\n  if (!loginResp || !loginResp.access_token) throw new Error('Login failed');\n  const token = loginResp.access_token;\n\n  // 3) Build multipart and upload via native http\n  const boundary = '----n8nSlack' + Date.now();\n  const CRLF = '\\r\\n';\n  const fp = (n, v) => Buffer.from('--' + boundary + CRLF + 'Content-Disposition: form-data; name=\"' + n + '\"' + CRLF + CRLF + v + CRLF);\n  const ff = (n, fn, ct, d) => [Buffer.from('--' + boundary + CRLF + 'Content-Disposition: form-data; name=\"' + n + '\"; filename=\"' + fn + '\"' + CRLF + 'Content-Type: ' + ct + CRLF + CRLF), d, Buffer.from(CRLF)];\n\n  const parts = [];\n  parts.push(...ff('boq_file', boqName, boqMime, boqBuffer));\n  parts.push(...ff('spec_file', specName, 'application/pdf', specBuffer));\n  parts.push(fp('source_platform', 'slack'));\n  parts.push(fp('platform_reply_info', JSON.stringify({ channel_id: channelId, user_id: userId, bot_token: SLACK_BOT_TOKEN })));\n  parts.push(fp('client_data', JSON.stringify(conv.client_data || {})));\n  parts.push(fp('project_data', JSON.stringify(conv.project_data || {})));\n  parts.push(fp('quotation_config', JSON.stringify(conv.quotation_config || {})));\n  parts.push(fp('boq_media_type', conv.boq_media_type || 'xlsx'));\n  parts.push(fp('callback_url', CALLBACK_ROUTER_URL));\n  parts.push(Buffer.from('--' + boundary + '--' + CRLF));\n  const body = Buffer.concat(parts);\n\n  const result = await uploadMultipart(\n    BACKEND_API_URL + '/api/integrations/generic/quotation/start',\n    { Authorization: 'Bearer ' + token, 'x-tenant-slug': TENANT_SLUG, 'Content-Type': 'multipart/form-data; boundary=' + boundary, 'Content-Length': String(body.length) },\n    body\n  );\n\n  return [{ json: { ok: true, project_id: result.project_id, pipeline_run_id: result.pipeline_run_id } }];\n\n} catch (error) {\n  const fs = require('fs');\n  try {\n    const c = JSON.parse(fs.readFileSync('/home/node/.n8n/slack_conversations.json','utf8'));\n    if (c[userId]) { c[userId] = { state: 'new' }; fs.writeFileSync('/home/node/.n8n/slack_conversations.json', JSON.stringify(c), 'utf8'); }\n  } catch(e) {}\n  await sendMsg('Could not start quotation: ' + (error.message || String(error)) + '\\n\\nPlease try again.');\n  return [{ json: { failed: true, error: error.message } }];\n}\n"
+      },
+      "id": "slack-download-009",
+      "name": "Download Files & Prepare",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Slack Quotation Bot — Layer 1\n\n### Architecture\nThis workflow is *Layer 1* (platform-specific).\nIt does NOT handle login, upload, or callback delivery.\n\n- *Layer 2*: `Core Sub-Workflow` (shared) — login + upload\n- *Layer 3*: `Callback Router` (shared) — delivers result to Slack DM\n\n### Setup after import\n1. Import `n8n/shared/core-quotation-subworkflow.json` → note its workflow ID\n2. Import `n8n/shared/callback-router.json` → activate it\n3. Import this workflow\n4. Open the `Core Sub-Workflow` node → set the workflow ID\n5. Open `State Machine` + `Download Files & Prepare` → verify config constants\n6. Activate this workflow\n7. Set Slack Event Subscriptions URL → this webhook's production URL\n8. Set `N8N_PIPELINE_CALLBACK_URL` in backend .env → callback router webhook URL\n\n### Config constants (in State Machine + Download Files nodes)\n- `SLACK_BOT_TOKEN` — xoxb-... from Slack app\n- `BACKEND_API_URL` — e.g. http://172.17.0.1:3001\n- `TENANT_SLUG` — e.g. acme\n- `LOGIN_EMAIL` / `LOGIN_PASSWORD`\n- `CALLBACK_ROUTER_URL` — the callback router webhook URL",
+        "height": 480,
+        "width": 500
+      },
+      "id": "slack-note-011",
+      "name": "Setup Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1200,
+        -300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://slack.com/api/views.open",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.config.SLACK_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ trigger_id: $json.payload.trigger_id, view: $json.payload.view }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "slack-open-modal-010",
+      "name": "Open Details Modal",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        500
+      ]
+    }
+  ],
+  "connections": {
+    "Slack Events Webhook": {
+      "main": [
+        [
+          {
+            "node": "Parse Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Event": {
+      "main": [
+        [
+          {
+            "node": "Route Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Type": {
+      "main": [
+        [
+          {
+            "node": "Respond Challenge",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Acknowledge Slack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Acknowledge Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Acknowledge Slack": {
+      "main": [
+        [
+          {
+            "node": "State Machine",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "State Machine": {
+      "main": [
+        [
+          {
+            "node": "Route Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Action": {
+      "main": [
+        [
+          {
+            "node": "Send Slack Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Download Files & Prepare",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Open Details Modal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "description": "Layer 1: Slack DM bot. Handles Slack events, conversation state, file download. Delegates to Core Sub-Workflow (Layer 2) for login + upload. Callback Router (Layer 3) delivers the result back."
+  },
+  "pinData": {},
+  "tags": []
+}

@@ -1,0 +1,67 @@
+{
+  "version": "3.1",
+  "screens": [
+    {
+      "id": "CLIENT_DETAILS",
+      "title": "Client Details",
+      "terminal": true,
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextHeading",
+            "text": "Enter your client information"
+          },
+          {
+            "type": "TextInput",
+            "label": "Client Name",
+            "name": "client_name",
+            "required": true,
+            "input-type": "text"
+          },
+          {
+            "type": "TextInput",
+            "label": "Company Name",
+            "name": "company_name",
+            "required": true,
+            "input-type": "text"
+          },
+          {
+            "type": "TextInput",
+            "label": "Email",
+            "name": "client_email",
+            "required": false,
+            "input-type": "email"
+          },
+          {
+            "type": "TextInput",
+            "label": "Phone Number",
+            "name": "client_phone",
+            "required": false,
+            "input-type": "phone"
+          },
+          {
+            "type": "TextArea",
+            "label": "Address",
+            "name": "client_address",
+            "required": false
+          },
+          {
+            "type": "Footer",
+            "label": "Submit",
+            "on-click-action": {
+              "name": "complete",
+              "payload": {
+                "client_name": "${form.client_name}",
+                "company_name": "${form.company_name}",
+                "client_email": "${form.client_email}",
+                "client_phone": "${form.client_phone}",
+                "client_address": "${form.client_address}"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
