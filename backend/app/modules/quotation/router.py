@@ -93,6 +93,7 @@ async def get_quotation(
 async def download_quotation(
     project_id: str,
     request: Request,
+    format: str = Query("docx", pattern="^(docx|xlsx)$"),
     db: AsyncSession = Depends(get_tenant_db),
     user: UserContext = Depends(get_current_user),
 ):
@@ -101,7 +102,7 @@ async def download_quotation(
     pid = uuid.UUID(project_id)
 
     service = QuotationService(db)
-    result = await service.get_download_url(tenant_id, pid)
+    result = await service.get_download_url(tenant_id, pid, fmt=format)
     if result is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

@@ -2,7 +2,7 @@ import uuid
 from datetime import date
 
 from sqlalchemy import Date, ForeignKey, Index, String, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.shared.base_model import Base, TimestampMixin, UUIDPrimaryKey
@@ -34,6 +34,7 @@ class Project(Base, UUIDPrimaryKey, TimestampMixin):
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default="IN_PROGRESS"
     )
+    quotation_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     owner = relationship("User", lazy="selectin")
     tenant = relationship("Tenant", lazy="selectin")

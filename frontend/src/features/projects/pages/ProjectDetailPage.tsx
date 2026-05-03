@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 
 import { projectsApi } from '../api/projects.api';
+import { pipelineApi } from '../api/pipeline.api';
 import { boqApi } from '../api/boq.api';
 import { specApi } from '../api/spec.api';
 import type { Project, ProjectAdmin } from '../types';
@@ -87,6 +88,19 @@ export function ProjectDetailPage() {
       .catch(() => navigate('/projects'))
       .finally(() => setLoading(false));
 
+    // Check pipeline status — redirect to appropriate page
+    pipelineApi.getStatus(projectId).then(({ data }) => {
+      if (data.status === 'running') {
+        navigate(`/projects/${projectId}/progress`, { replace: true });
+      } else if (data.status === 'completed') {
+        navigate(`/projects/${projectId}/completed`, { replace: true });
+      } else if (data.status === 'failed') {
+        navigate(`/projects/${projectId}/progress`, { replace: true });
+      }
+    }).catch(() => {
+      // No pipeline — stay on detail page or redirect to setup
+    });
+
     // Check existing BOQ documents, extracted items, and spec on mount
     boqApi.listDocuments(projectId).then(({ data }) => {
       if (data.length > 0) setHasBoq(true);
@@ -123,7 +137,7 @@ export function ProjectDetailPage() {
   };
 
   const handleAnalysisComplete = () => {
-    navigate(`/projects/${projectId}/results`);
+    navigate(`/projects/${projectId}/setup`);
   };
 
   if (loading) {
@@ -164,9 +178,9 @@ export function ProjectDetailPage() {
         </div>
         {isOwner && !editing && (
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => navigate(`/projects/${projectId}/results`)}>
+            <Button variant="outline" onClick={() => navigate(`/projects/${projectId}/setup`)}>
               <ExternalLink className="mr-2 h-4 w-4" />
-              View Results
+              Project Setup
             </Button>
             <Button variant="outline" onClick={() => setEditing(true)}>
               <Pencil className="mr-2 h-4 w-4" />

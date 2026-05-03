@@ -15,9 +15,10 @@ interface DeviceSelectionSectionProps {
   projectName?: string;
   refreshKey?: number;
   hasSpec?: boolean;
+  readOnly?: boolean;
 }
 
-export function DeviceSelectionSection({ projectId, projectName = '', refreshKey = 0, hasSpec = true }: DeviceSelectionSectionProps) {
+export function DeviceSelectionSection({ projectId, projectName = '', refreshKey = 0, hasSpec = true, readOnly = false }: DeviceSelectionSectionProps) {
   const [loading, setLoading] = useState(false);
   const [jobStatus, setJobStatus] = useState<DeviceSelectionJobStatus | null>(null);
   const [error, setError] = useState('');
@@ -251,15 +252,17 @@ export function DeviceSelectionSection({ projectId, projectName = '', refreshKey
             Match BOQ items to detection devices and notification appliances
           </p>
         </div>
-        <Button
-          variant="primary"
-          onClick={handleRun}
-          disabled={loading}
-          isLoading={loading}
-        >
-          <Cpu className="mr-2 h-4 w-4" />
-          {loading ? 'Running...' : 'Run Device Selection'}
-        </Button>
+        {!readOnly && (
+          <Button
+            variant="primary"
+            onClick={handleRun}
+            disabled={loading}
+            isLoading={loading}
+          >
+            <Cpu className="mr-2 h-4 w-4" />
+            {loading ? 'Running...' : 'Run Device Selection'}
+          </Button>
+        )}
       </div>
 
       {/* Status indicators */}
@@ -428,16 +431,18 @@ export function DeviceSelectionSection({ projectId, projectName = '', refreshKey
                 {networkType === 'IP' ? 'IP' : networkType.charAt(0).toUpperCase() + networkType.slice(1)}
               </span>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleNetworkTypeSwitch}
-              disabled={networkSaving}
-              isLoading={networkSaving}
-            >
-              <RefreshCw className="mr-1 h-3 w-3" />
-              Switch to {NETWORK_CYCLE[networkType] === 'IP' ? 'IP' : (NETWORK_CYCLE[networkType] || '').charAt(0).toUpperCase() + (NETWORK_CYCLE[networkType] || '').slice(1)}
-            </Button>
+            {!readOnly && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleNetworkTypeSwitch}
+                disabled={networkSaving}
+                isLoading={networkSaving}
+              >
+                <RefreshCw className="mr-1 h-3 w-3" />
+                Switch to {NETWORK_CYCLE[networkType] === 'IP' ? 'IP' : (NETWORK_CYCLE[networkType] || '').charAt(0).toUpperCase() + (NETWORK_CYCLE[networkType] || '').slice(1)}
+              </Button>
+            )}
           </div>
           {isNetworkManuallyChanged && (
             <p className="mt-2 text-xs text-amber-700">
@@ -474,16 +479,18 @@ export function DeviceSelectionSection({ projectId, projectName = '', refreshKey
                 {notificationType === 'addressable' ? 'Addressable' : 'Non-Addressable'}
               </span>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleNotificationTypeSwitch}
-              disabled={notificationSaving}
-              isLoading={notificationSaving}
-            >
-              <RefreshCw className="mr-1 h-3 w-3" />
-              Switch to {notificationType === 'addressable' ? 'Non-Addressable' : 'Addressable'}
-            </Button>
+            {!readOnly && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleNotificationTypeSwitch}
+                disabled={notificationSaving}
+                isLoading={notificationSaving}
+              >
+                <RefreshCw className="mr-1 h-3 w-3" />
+                Switch to {notificationType === 'addressable' ? 'Non-Addressable' : 'Addressable'}
+              </Button>
+            )}
           </div>
           {isNotificationManuallyChanged && (
             <p className="mt-2 text-xs text-amber-700">

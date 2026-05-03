@@ -42,8 +42,8 @@ export function PaymentHistoryTable() {
   };
 
   const formatAmount = (amount: number, currency: string) => {
-    const dollars = amount / 100;
-    return `$${dollars.toFixed(2)} ${currency}`;
+    const value = amount / 100;
+    return `${value.toFixed(2)} ${currency}`;
   };
 
   return (

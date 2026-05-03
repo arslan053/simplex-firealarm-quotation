@@ -59,7 +59,7 @@ class PaymentHistory(Base, UUIDPrimaryKey, TimestampMixin):
     )
     plan: Mapped[str] = mapped_column(String(20), nullable=False)
     amount: Mapped[int] = mapped_column(Integer, nullable=False)
-    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="USD")
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="SAR")
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     moyasar_payment_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     given_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)

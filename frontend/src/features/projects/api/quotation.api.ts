@@ -22,9 +22,10 @@ export const quotationApi = {
   get: (projectId: string) =>
     apiClient.get<QuotationResponse>(`/projects/${projectId}/quotation`),
 
-  download: (projectId: string) =>
+  download: (projectId: string, format: 'docx' | 'xlsx' = 'docx') =>
     apiClient.get<QuotationDownloadResponse>(
       `/projects/${projectId}/quotation/download`,
+      { params: { format } },
     ),
 
   preview: (projectId: string) =>
