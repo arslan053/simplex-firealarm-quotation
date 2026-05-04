@@ -15,6 +15,9 @@ export const boqApi = {
   listDocuments: (projectId: string) =>
     apiClient.get<DocumentResponse[]>(`/projects/${projectId}/boq/documents`),
 
+  removeDocument: (projectId: string, documentId: string) =>
+    apiClient.delete(`/projects/${projectId}/boq/documents/${documentId}`),
+
   uploadPdf: (projectId: string, file: File) => {
     const formData = new FormData();
     formData.append('file', file);

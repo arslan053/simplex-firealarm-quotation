@@ -189,7 +189,7 @@ export function ProjectSetupPage() {
         <h2 className="text-lg font-semibold text-gray-900">Upload Documents</h2>
         <BoqUploadSection
           projectId={projectId}
-          onBoqUploaded={() => setHasBoq(true)}
+          onBoqChanged={setHasBoq}
         />
         <SpecUpload
           projectId={projectId}

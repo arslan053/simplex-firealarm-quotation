@@ -96,3 +96,22 @@ class SpecService:
             document=SpecDocumentResponse.model_validate(doc),
             message="Specification uploaded. Run spec analysis to extract.",
         )
+
+    async def remove_spec(
+        self,
+        tenant_id: uuid.UUID,
+        project_id: uuid.UUID,
+    ) -> None:
+        doc = await self.repo.get_existing_spec(tenant_id, project_id)
+        if not doc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Specification document not found.",
+            )
+
+        await self.block_repo.delete_by_document(doc.id, tenant_id)
+        try:
+            delete_file(doc.object_key)
+        except Exception:
+            logger.warning("Failed to delete spec file from MinIO: %s", doc.object_key)
+        await self.repo.delete(doc)

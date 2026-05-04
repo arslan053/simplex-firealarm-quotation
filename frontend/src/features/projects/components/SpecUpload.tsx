@@ -1,10 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
-import { FileUp, AlertCircle, CheckCircle, AlertTriangle } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { FileUp } from 'lucide-react';
 
 import { specApi } from '../api/spec.api';
-import { Card } from '@/shared/ui/Card';
-import { Button } from '@/shared/ui/Button';
-import { normalizeError } from '@/shared/api/errors';
+import type { SpecDocumentResponse } from '../types/spec';
+import { DocumentUploadCard } from './DocumentUploadCard';
 
 interface SpecUploadProps {
   projectId: string;
@@ -12,163 +11,36 @@ interface SpecUploadProps {
 }
 
 export function SpecUpload({ projectId, onSpecUploaded }: SpecUploadProps) {
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [currentDocument, setCurrentDocument] = useState<SpecDocumentResponse | null>(null);
 
-  const [existingSpec, setExistingSpec] = useState(false);
-  const [existingFileName, setExistingFileName] = useState<string | null>(null);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [showWarning, setShowWarning] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [uploaded, setUploaded] = useState(false);
-  const [error, setError] = useState('');
-
-  // Check for existing spec on mount
-  useEffect(() => {
-    specApi
-      .checkExisting(projectId)
-      .then(({ data }) => {
-        setExistingSpec(data.exists);
-        if (data.exists && data.document) {
-          setExistingFileName(data.document.original_file_name);
-        }
-      })
-      .catch(() => {});
+  const refreshSpec = useCallback(async () => {
+    const { data } = await specApi.checkExisting(projectId);
+    setCurrentDocument(data.exists ? data.document : null);
   }, [projectId]);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0] || null;
-    setSelectedFile(file);
-    setError('');
-    setShowWarning(false);
-    setUploaded(false);
-  };
+  useEffect(() => {
+    refreshSpec().catch(() => setCurrentDocument(null));
+  }, [refreshSpec]);
 
-  const handleUploadClick = () => {
-    if (!selectedFile) return;
-
-    if (existingSpec) {
-      setShowWarning(true);
-    } else {
-      doUpload();
-    }
-  };
-
-  const doUpload = async () => {
-    if (!selectedFile) return;
-
-    setShowWarning(false);
-    setUploading(true);
-    setError('');
-    setUploaded(false);
-
-    try {
-      const { data } = await specApi.upload(projectId, selectedFile);
-      setExistingSpec(true);
-      setExistingFileName(data.document.original_file_name);
-      setUploaded(true);
-      onSpecUploaded();
-
-      // Clear file input
-      setSelectedFile(null);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
-    } catch (err) {
-      setError(normalizeError(err).message);
-    } finally {
-      setUploading(false);
-    }
+  const handleSuccess = async () => {
+    await refreshSpec();
+    onSpecUploaded();
   };
 
   return (
     <div className="space-y-6">
-      <Card>
-        <div className="flex flex-col items-center py-6 text-center">
-          <FileUp className="mb-3 h-10 w-10 text-indigo-400" />
-          <h3 className="text-sm font-semibold text-gray-900">
-            {existingSpec ? 'Replace Specification File' : 'Upload Specification File'}
-          </h3>
-          <p className="mt-1 text-xs text-gray-500">
-            Technical specifications document (.pdf)
-          </p>
-
-          {/* Existing spec indicator */}
-          {existingSpec && existingFileName && !uploaded && (
-            <div className="mt-3 flex items-center gap-2 rounded-lg bg-green-50 px-4 py-2 text-sm text-green-700">
-              <CheckCircle className="h-4 w-4 flex-shrink-0" />
-              <span>Current: <span className="font-medium">{existingFileName}</span></span>
-            </div>
-          )}
-
-          <div className="mt-4 flex flex-col items-center gap-3">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".pdf"
-              onChange={handleFileChange}
-              className="block w-full max-w-xs text-sm text-gray-500 file:mr-4 file:rounded-lg file:border-0 file:bg-indigo-50 file:px-4 file:py-2 file:text-sm file:font-medium file:text-indigo-700 hover:file:bg-indigo-100"
-            />
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={handleUploadClick}
-              disabled={!selectedFile || uploading}
-              isLoading={uploading}
-            >
-              {uploading ? 'Uploading...' : existingSpec ? 'Replace Spec' : 'Upload Spec'}
-            </Button>
-          </div>
-
-          {/* Replacement warning */}
-          {showWarning && (
-            <div className="mt-4 w-full max-w-md rounded-lg bg-yellow-50 p-4">
-              <div className="flex items-start gap-2">
-                <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-yellow-600" />
-                <div className="text-left text-sm text-yellow-800">
-                  <p className="font-medium">A specification already exists.</p>
-                  <p className="mt-1">
-                    Uploading a new file will delete the previous one.
-                  </p>
-                  <div className="mt-3 flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setShowWarning(false)}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      onClick={doUpload}
-                      isLoading={uploading}
-                    >
-                      Confirm Upload
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Error */}
-          {error && (
-            <div className="mt-4 flex items-center gap-2 rounded-lg bg-red-50 px-4 py-2 text-sm text-red-700">
-              <AlertCircle className="h-4 w-4 flex-shrink-0" />
-              <span>{error}</span>
-            </div>
-          )}
-
-          {/* Uploaded badge */}
-          {uploaded && (
-            <div className="mt-4 flex items-center gap-2 rounded-lg bg-green-50 px-4 py-2 text-sm text-green-700">
-              <CheckCircle className="h-4 w-4 flex-shrink-0" />
-              <span>File uploaded. Run analysis to extract.</span>
-            </div>
-          )}
-        </div>
-      </Card>
-
+      <DocumentUploadCard
+        icon={<FileUp className="mb-3 h-10 w-10 text-indigo-400" />}
+        title="Specification File"
+        description="Technical specifications document (.pdf)"
+        accept=".pdf"
+        uploadLabel="Upload Spec"
+        replaceLabel="Replace Spec"
+        currentDocument={currentDocument}
+        upload={(files) => specApi.upload(projectId, files[0])}
+        remove={currentDocument ? () => specApi.remove(projectId) : undefined}
+        onSuccess={handleSuccess}
+      />
     </div>
   );
 }

@@ -86,6 +86,10 @@ class DocumentRepository:
         )
         return result.scalar_one_or_none()
 
+    async def delete(self, doc: Document) -> None:
+        await self.db.delete(doc)
+        await self.db.flush()
+
     async def update_document_category(
         self,
         doc_id: uuid.UUID,

@@ -5,7 +5,6 @@ import uuid
 from fastapi import HTTPException, UploadFile, status
 
 from app.modules.boq.image_utils import combine_images_to_pdf
-from app.shared.storage import upload_file
 from app.shared.upload_security import (
     sanitize_filename,
     validate_and_clean_image,
@@ -43,23 +42,10 @@ async def read_image_files(files: list[UploadFile]) -> list[tuple[str, bytes]]:
     return images
 
 
-def build_and_upload_combined_pdf(
-    tenant_id: uuid.UUID,
-    project_id: uuid.UUID,
+def build_combined_pdf(
     images: list[tuple[str, bytes]],
-) -> tuple[str, bytes, str]:
-    """Combine images into a PDF, upload to MinIO.
-
-    Returns:
-        (object_key, pdf_bytes, generated_filename)
-    """
+) -> tuple[bytes, str]:
+    """Combine images into a PDF without uploading it."""
     pdf_bytes = combine_images_to_pdf(images)
     filename = f"boq_images_{uuid.uuid4().hex[:8]}.pdf"
-    file_uuid = uuid.uuid4()
-    object_key = f"{tenant_id}/{project_id}/boq/{file_uuid}_{filename}"
-    upload_file(
-        object_key=object_key,
-        data=pdf_bytes,
-        content_type="application/pdf",
-    )
-    return object_key, pdf_bytes, filename
+    return pdf_bytes, filename

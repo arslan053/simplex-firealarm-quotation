@@ -6,7 +6,7 @@ from fastapi import HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.boq.images_handler import (
-    build_and_upload_combined_pdf,
+    build_combined_pdf,
     read_image_files,
     validate_image_filenames,
 )
@@ -17,6 +17,7 @@ from app.modules.boq.pdf_handler import (
 from app.modules.boq.repository import BoqItemRepository, DocumentRepository
 from app.modules.boq.schemas import DocumentResponse
 from app.shared.storage import upload_file
+from app.shared.storage import delete_file
 from app.shared.upload_security import (
     check_zip_bomb,
     sanitize_filename,
@@ -60,6 +61,44 @@ class BoqService:
         self.doc_repo = DocumentRepository(db)
         self.item_repo = BoqItemRepository(db)
 
+    async def _delete_boq_document(
+        self,
+        tenant_id: uuid.UUID,
+        doc,
+    ) -> None:
+        await self.item_repo.delete_by_document_id(doc.id, tenant_id)
+        try:
+            delete_file(doc.object_key)
+        except Exception:
+            logger.warning("Failed to delete BOQ file from MinIO: %s", doc.object_key)
+        await self.doc_repo.delete(doc)
+
+    async def _ensure_no_existing_boq_documents(
+        self,
+        tenant_id: uuid.UUID,
+        project_id: uuid.UUID,
+    ) -> None:
+        docs = await self.doc_repo.get_by_project(tenant_id, project_id)
+        if docs:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="A BOQ document already exists. Remove it before uploading another BOQ.",
+            )
+
+    async def remove_boq_document(
+        self,
+        tenant_id: uuid.UUID,
+        project_id: uuid.UUID,
+        document_id: uuid.UUID,
+    ) -> None:
+        doc = await self.doc_repo.get_by_id(document_id, tenant_id, project_id)
+        if not doc or doc.type != "BOQ":
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="BOQ document not found.",
+            )
+        await self._delete_boq_document(tenant_id, doc)
+
     # ------------------------------------------------------------------
     # Excel upload — store file only, no GPT extraction
     # ------------------------------------------------------------------
@@ -78,6 +117,8 @@ class BoqService:
                 detail="Only .xlsx and .xls files are supported",
             )
         filename = sanitize_filename(raw_name)
+
+        await self._ensure_no_existing_boq_documents(tenant_id, project_id)
 
         file_bytes = await file.read()
         validate_file_size(file_bytes)
@@ -130,6 +171,8 @@ class BoqService:
         validate_pdf_filename(raw_name)
         filename = sanitize_filename(raw_name)
 
+        await self._ensure_no_existing_boq_documents(tenant_id, project_id)
+
         pdf_bytes = await file.read()
         validate_file_size(pdf_bytes)
         validate_magic_bytes(pdf_bytes, "pdf")
@@ -161,12 +204,20 @@ class BoqService:
     ) -> DocumentResponse:
         validate_image_filenames(files)
 
+        await self._ensure_no_existing_boq_documents(tenant_id, project_id)
+
         images = await read_image_files(files)
 
-        object_key, pdf_bytes, filename = build_and_upload_combined_pdf(
-            tenant_id, project_id, images,
-        )
+        pdf_bytes, filename = build_combined_pdf(images)
         file_size = len(pdf_bytes)
+
+        file_uuid = uuid.uuid4()
+        object_key = f"{tenant_id}/{project_id}/boq/{file_uuid}_{filename}"
+        upload_file(
+            object_key=object_key,
+            data=pdf_bytes,
+            content_type="application/pdf",
+        )
 
         doc = await self.doc_repo.create(
             tenant_id=tenant_id,

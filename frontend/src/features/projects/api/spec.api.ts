@@ -20,4 +20,7 @@ export const specApi = {
     );
   },
 
+  remove: (projectId: string) =>
+    apiClient.delete(`/projects/${projectId}/spec`),
+
 };

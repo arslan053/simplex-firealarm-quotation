@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, Request, UploadFile, File
+from fastapi import APIRouter, Depends, Response, Request, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_tenant_db
@@ -85,3 +85,27 @@ async def upload_spec(
         file=file,
     )
 
+
+@router.delete(
+    "",
+    status_code=204,
+    dependencies=[
+        Depends(require_tenant_domain),
+        Depends(require_tenant_match),
+        require_role("admin", "employee"),
+    ],
+)
+async def remove_spec(
+    project_id: uuid.UUID,
+    request: Request,
+    user: UserContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
+):
+    tenant = request.state.tenant
+    tenant_id = uuid.UUID(tenant["id"])
+
+    await _verify_project_ownership(project_id, user, tenant_id, db)
+
+    service = SpecService(db)
+    await service.remove_spec(tenant_id, project_id)
+    return Response(status_code=204)
