@@ -1,9 +1,3 @@
-export interface PanelSelectionJobStatus {
-  job_id: string;
-  status: 'pending' | 'running' | 'success' | 'failed';
-  message: string;
-}
-
 export interface PanelSelectionGateResult {
   q1_total_devices: number;
   q1_devices_per_panel: number;
@@ -57,12 +51,6 @@ export interface PanelSelectionResults {
   products: PanelSelectionProduct[];
   is_multi_group?: boolean;
   panel_groups?: PanelGroupResult[];
-  status: string;
-  message: string;
-}
-
-export interface JobStartResponse {
-  job_id: string;
   status: string;
   message: string;
 }

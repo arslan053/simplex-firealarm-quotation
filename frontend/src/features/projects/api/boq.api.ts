@@ -1,9 +1,5 @@
 import { apiClient } from '@/shared/api/client';
-import type {
-  BoqItemListResponse,
-  BoqItemResponse,
-  DocumentResponse,
-} from '../types/boq';
+import type { DocumentResponse } from '../types/boq';
 
 export const boqApi = {
   upload: (projectId: string, file: File) => {
@@ -15,20 +11,6 @@ export const boqApi = {
       { headers: { 'Content-Type': 'multipart/form-data' } },
     );
   },
-
-  listItems: (projectId: string, params: { page?: number; limit?: number } = {}) =>
-    apiClient.get<BoqItemListResponse>(`/projects/${projectId}/boq/items`, {
-      params: {
-        page: params.page ?? 1,
-        limit: params.limit ?? 50,
-      },
-    }),
-
-  toggleVisibility: (projectId: string, itemId: string, isHidden: boolean) =>
-    apiClient.patch<BoqItemResponse>(
-      `/projects/${projectId}/boq/items/${itemId}/visibility`,
-      { is_hidden: isHidden },
-    ),
 
   listDocuments: (projectId: string) =>
     apiClient.get<DocumentResponse[]>(`/projects/${projectId}/boq/documents`),

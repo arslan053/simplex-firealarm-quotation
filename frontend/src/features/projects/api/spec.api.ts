@@ -2,7 +2,6 @@ import { apiClient } from '@/shared/api/client';
 import type {
   SpecExistingCheckResponse,
   SpecUploadResponse,
-  SpecBlockListResponse,
 } from '../types/spec';
 
 export const specApi = {
@@ -21,14 +20,4 @@ export const specApi = {
     );
   },
 
-  getBlocks: (
-    projectId: string,
-    documentId: string,
-    page: number = 1,
-    limit: number = 100,
-  ) =>
-    apiClient.get<SpecBlockListResponse>(
-      `/projects/${projectId}/spec/blocks`,
-      { params: { document_id: documentId, page, limit } },
-    ),
 };

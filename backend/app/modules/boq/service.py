@@ -15,12 +15,7 @@ from app.modules.boq.pdf_handler import (
     validate_pdf_filename,
 )
 from app.modules.boq.repository import BoqItemRepository, DocumentRepository
-from app.modules.boq.schemas import (
-    BoqItemListResponse,
-    BoqItemResponse,
-    DocumentResponse,
-    build_pagination,
-)
+from app.modules.boq.schemas import DocumentResponse
 from app.shared.storage import upload_file
 from app.shared.upload_security import (
     check_zip_bomb,
@@ -182,36 +177,6 @@ class BoqService:
             object_key=object_key,
         )
         return DocumentResponse.model_validate(doc)
-
-    async def list_boq_items(
-        self,
-        tenant_id: uuid.UUID,
-        project_id: uuid.UUID,
-        page: int = 1,
-        limit: int = 50,
-    ) -> BoqItemListResponse:
-        items, total = await self.item_repo.list_by_project(
-            tenant_id, project_id, page=page, limit=limit
-        )
-        return BoqItemListResponse(
-            data=[BoqItemResponse.model_validate(item) for item in items],
-            pagination=build_pagination(page, limit, total),
-        )
-
-    async def toggle_boq_item_hidden(
-        self,
-        item_id: uuid.UUID,
-        tenant_id: uuid.UUID,
-        is_hidden: bool,
-    ) -> BoqItemResponse:
-        item = await self.item_repo.get_by_id_and_tenant(item_id, tenant_id)
-        if not item:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="BOQ item not found",
-            )
-        item = await self.item_repo.update_hidden(item, is_hidden)
-        return BoqItemResponse.model_validate(item)
 
     async def list_documents(
         self,

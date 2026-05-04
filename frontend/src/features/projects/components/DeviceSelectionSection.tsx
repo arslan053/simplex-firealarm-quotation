@@ -1,28 +1,22 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Cpu, Loader2, AlertCircle, CheckCircle, ChevronLeft, ChevronRight, Download, RefreshCw } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { AlertCircle, ChevronLeft, ChevronRight, Download } from 'lucide-react';
 
 import { deviceSelectionApi } from '../api/device-selection.api';
-import type { DeviceSelectionJobStatus, DeviceSelectionItem, PaginationMeta } from '../types/device-selection';
+import type { DeviceSelectionItem, PaginationMeta } from '../types/device-selection';
 import { Card } from '@/shared/ui/Card';
 import { Button } from '@/shared/ui/Button';
 import { normalizeError } from '@/shared/api/errors';
 
-const POLL_INTERVAL = 3000;
 const PAGE_SIZE = 20;
 
 interface DeviceSelectionSectionProps {
   projectId: string;
   projectName?: string;
   refreshKey?: number;
-  hasSpec?: boolean;
-  readOnly?: boolean;
 }
 
-export function DeviceSelectionSection({ projectId, projectName = '', refreshKey = 0, hasSpec = true, readOnly = false }: DeviceSelectionSectionProps) {
-  const [loading, setLoading] = useState(false);
-  const [jobStatus, setJobStatus] = useState<DeviceSelectionJobStatus | null>(null);
+export function DeviceSelectionSection({ projectId, projectName = '', refreshKey = 0 }: DeviceSelectionSectionProps) {
   const [error, setError] = useState('');
-  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [results, setResults] = useState<DeviceSelectionItem[]>([]);
   const [pagination, setPagination] = useState<PaginationMeta | null>(null);
@@ -32,17 +26,8 @@ export function DeviceSelectionSection({ projectId, projectName = '', refreshKey
   const [expandedReasons, setExpandedReasons] = useState<Set<string>>(new Set());
   const [networkType, setNetworkType] = useState<string | null>(null);
   const [networkTypeAuto, setNetworkTypeAuto] = useState<string | null>(null);
-  const [networkSaving, setNetworkSaving] = useState(false);
   const [notificationType, setNotificationType] = useState<string | null>(null);
   const [notificationTypeAuto, setNotificationTypeAuto] = useState<string | null>(null);
-  const [notificationSaving, setNotificationSaving] = useState(false);
-
-  const stopPolling = useCallback(() => {
-    if (pollingRef.current) {
-      clearInterval(pollingRef.current);
-      pollingRef.current = null;
-    }
-  }, []);
 
   const toggleReason = useCallback((id: string) => {
     setExpandedReasons((prev) => {
@@ -75,91 +60,10 @@ export function DeviceSelectionSection({ projectId, projectName = '', refreshKey
     [projectId],
   );
 
-  const pollStatus = useCallback(
-    async (jid: string) => {
-      try {
-        const { data } = await deviceSelectionApi.getStatus(projectId, jid);
-        setJobStatus(data);
-
-        if (data.status === 'success') {
-          stopPolling();
-          setLoading(false);
-          fetchResults(1);
-        } else if (data.status === 'failed') {
-          stopPolling();
-          setLoading(false);
-          setError(data.message);
-        }
-      } catch (err) {
-        stopPolling();
-        setLoading(false);
-        setError(normalizeError(err).message);
-      }
-    },
-    [projectId, stopPolling, fetchResults],
-  );
-
-  useEffect(() => {
-    return () => stopPolling();
-  }, [stopPolling]);
-
   // Load existing results on mount (and re-fetch when refreshKey changes)
   useEffect(() => {
     fetchResults(1);
   }, [fetchResults, refreshKey]);
-
-  // Check for active job on mount (resume polling if user navigated away)
-  useEffect(() => {
-    deviceSelectionApi.getActiveJob(projectId).then(({ data }) => {
-      if (data.active && data.job_id) {
-        setLoading(true);
-        setJobStatus({
-          job_id: data.job_id,
-          status: data.status as 'running',
-          message: data.message || 'Matching BOQ items to devices...',
-          matched_count: 0,
-        });
-        pollingRef.current = setInterval(() => {
-          pollStatus(data.job_id!);
-        }, POLL_INTERVAL);
-      }
-    }).catch(() => {});
-  }, [projectId, pollStatus]);
-
-  const doRun = async () => {
-    setLoading(true);
-    setError('');
-    setJobStatus(null);
-
-    try {
-      const { data } = await deviceSelectionApi.run(projectId);
-      setJobStatus({
-        job_id: data.job_id,
-        status: 'running',
-        message: 'Matching BOQ items to devices with GPT-5.2...',
-        matched_count: 0,
-      });
-
-      pollingRef.current = setInterval(() => {
-        pollStatus(data.job_id);
-      }, POLL_INTERVAL);
-    } catch (err) {
-      setLoading(false);
-      setError(normalizeError(err).message);
-    }
-  };
-
-  const handleRun = () => {
-    if (!hasSpec) {
-      const confirmed = window.confirm(
-        'No specification PDF has been uploaded for this project. ' +
-        'Device selection will rely entirely on BOQ data — matches may be less accurate without specification context.\n\n' +
-        'Continue without spec?'
-      );
-      if (!confirmed) return;
-    }
-    doRun();
-  };
 
   const handleDownload = async () => {
     if (!pagination) return;
@@ -197,49 +101,7 @@ export function DeviceSelectionSection({ projectId, projectName = '', refreshKey
     }
   };
 
-  const NETWORK_CYCLE: Record<string, string> = { wired: 'fiber', fiber: 'IP', IP: 'wired' };
-
-  const handleNetworkTypeSwitch = async () => {
-    if (!networkType) return;
-    const next = NETWORK_CYCLE[networkType] || 'wired';
-    setNetworkSaving(true);
-    try {
-      await deviceSelectionApi.overrideNetworkType(projectId, next);
-      setNetworkType(next);
-    } catch (err) {
-      console.error('Failed to override network type:', normalizeError(err).message);
-    } finally {
-      setNetworkSaving(false);
-    }
-  };
-
   const isNetworkManuallyChanged = networkType && networkTypeAuto && networkType !== networkTypeAuto;
-
-  const handleNotificationTypeSwitch = async () => {
-    if (!notificationType) return;
-    const next = notificationType === 'addressable' ? 'non_addressable' : 'addressable';
-    const nextLabel = next === 'addressable' ? 'Addressable' : 'Non-Addressable';
-
-    const confirmed = window.confirm(
-      `Changing notification type to ${nextLabel} will re-run device selection for all notification items. ` +
-      `Currently selected notification devices will be replaced with ${nextLabel} variants.\n\n` +
-      `Are you sure you want to change the notification type?`
-    );
-    if (!confirmed) return;
-
-    setNotificationSaving(true);
-    try {
-      await deviceSelectionApi.overrideNotificationType(projectId, next);
-      setNotificationType(next);
-      // Re-fetch results since notification items were re-selected
-      await fetchResults(currentPage);
-    } catch (err) {
-      console.error('Failed to override notification type:', normalizeError(err).message);
-    } finally {
-      setNotificationSaving(false);
-    }
-  };
-
   const isNotificationManuallyChanged = notificationType && notificationTypeAuto && notificationType !== notificationTypeAuto;
 
   return (
@@ -252,45 +114,12 @@ export function DeviceSelectionSection({ projectId, projectName = '', refreshKey
             Match BOQ items to detection devices and notification appliances
           </p>
         </div>
-        {!readOnly && (
-          <Button
-            variant="primary"
-            onClick={handleRun}
-            disabled={loading}
-            isLoading={loading}
-          >
-            <Cpu className="mr-2 h-4 w-4" />
-            {loading ? 'Running...' : 'Run Device Selection'}
-          </Button>
-        )}
       </div>
-
-      {/* Status indicators */}
-      {loading && jobStatus && (
-        <Card>
-          <div className="flex items-center justify-center gap-2 py-4 text-sm text-indigo-600">
-            <Loader2 className="h-5 w-5 animate-spin" />
-            <span>{jobStatus.message}</span>
-          </div>
-          <p className="pb-4 text-center text-xs text-gray-400">
-            This may take 1-3 minutes depending on the number of BOQ items.
-          </p>
-        </Card>
-      )}
 
       {error && (
         <div className="flex items-center gap-2 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
           <AlertCircle className="h-4 w-4 flex-shrink-0" />
           <span>{error}</span>
-        </div>
-      )}
-
-      {jobStatus?.status === 'success' && (
-        <div className="flex items-center gap-2 rounded-lg bg-green-50 px-4 py-3 text-sm text-green-700">
-          <CheckCircle className="h-4 w-4 flex-shrink-0" />
-          <span className="font-medium">
-            Device selection complete. {jobStatus.matched_count} items matched.
-          </span>
         </div>
       )}
 
@@ -431,18 +260,6 @@ export function DeviceSelectionSection({ projectId, projectName = '', refreshKey
                 {networkType === 'IP' ? 'IP' : networkType.charAt(0).toUpperCase() + networkType.slice(1)}
               </span>
             </div>
-            {!readOnly && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleNetworkTypeSwitch}
-                disabled={networkSaving}
-                isLoading={networkSaving}
-              >
-                <RefreshCw className="mr-1 h-3 w-3" />
-                Switch to {NETWORK_CYCLE[networkType] === 'IP' ? 'IP' : (NETWORK_CYCLE[networkType] || '').charAt(0).toUpperCase() + (NETWORK_CYCLE[networkType] || '').slice(1)}
-              </Button>
-            )}
           </div>
           {isNetworkManuallyChanged && (
             <p className="mt-2 text-xs text-amber-700">
@@ -479,18 +296,6 @@ export function DeviceSelectionSection({ projectId, projectName = '', refreshKey
                 {notificationType === 'addressable' ? 'Addressable' : 'Non-Addressable'}
               </span>
             </div>
-            {!readOnly && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleNotificationTypeSwitch}
-                disabled={notificationSaving}
-                isLoading={notificationSaving}
-              >
-                <RefreshCw className="mr-1 h-3 w-3" />
-                Switch to {notificationType === 'addressable' ? 'Non-Addressable' : 'Addressable'}
-              </Button>
-            )}
           </div>
           {isNotificationManuallyChanged && (
             <p className="mt-2 text-xs text-amber-700">
@@ -498,24 +303,16 @@ export function DeviceSelectionSection({ projectId, projectName = '', refreshKey
               changed to <span className="font-semibold">{notificationType === 'addressable' ? 'Addressable' : 'Non-Addressable'}</span>
             </p>
           )}
-          {notificationSaving && (
-            <div className="mt-2 flex items-center gap-2 text-xs text-gray-500">
-              <Loader2 className="h-3 w-3 animate-spin" />
-              Re-selecting notification devices...
-            </div>
-          )}
         </div>
       )}
 
       {/* Empty state */}
-      {!loading && results.length === 0 && !error && (
+      {results.length === 0 && !error && (
         <Card>
           <div className="flex flex-col items-center py-12 text-center">
-            <Cpu className="mb-3 h-10 w-10 text-gray-300" />
             <h3 className="text-lg font-semibold text-gray-900">No device selections yet</h3>
             <p className="mt-1 max-w-md text-sm text-gray-500">
-              Click "Run Device Selection" to match BOQ items to detection devices and
-              notification appliances using AI.
+              Device selection results will appear here after the project pipeline completes.
             </p>
           </div>
         </Card>

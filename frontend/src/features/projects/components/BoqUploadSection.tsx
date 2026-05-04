@@ -3,18 +3,14 @@ import { useState } from 'react';
 import { BoqExcelUpload } from './BoqExcelUpload';
 import { BoqPdfUpload } from './BoqPdfUpload';
 import { BoqImagesUpload } from './BoqImagesUpload';
-import { BoqItemsTable } from './BoqItemsTable';
 
 interface BoqUploadSectionProps {
   projectId: string;
-  projectName: string;
-  refreshKey: number;
   onBoqUploaded: () => void;
 }
 
-export function BoqUploadSection({ projectId, projectName, refreshKey, onBoqUploaded }: BoqUploadSectionProps) {
+export function BoqUploadSection({ projectId, onBoqUploaded }: BoqUploadSectionProps) {
   const [isProcessing, setIsProcessing] = useState(false);
-  const [showItems, setShowItems] = useState(false);
 
   const handleSuccess = () => {
     onBoqUploaded();
@@ -42,14 +38,6 @@ export function BoqUploadSection({ projectId, projectName, refreshKey, onBoqUplo
           onSuccess={handleSuccess}
         />
       </div>
-
-      <BoqItemsTable
-        projectId={projectId}
-        projectName={projectName}
-        show={showItems}
-        onToggleShow={() => setShowItems(!showItems)}
-        refreshKey={refreshKey}
-      />
     </div>
   );
 }

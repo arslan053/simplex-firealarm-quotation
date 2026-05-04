@@ -4,17 +4,11 @@ import uuid
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.spec.models import SpecBlock
-from app.modules.spec.parser import parse_spec_markdown
 from app.modules.spec.repository import SpecBlockRepository, SpecDocumentRepository
 from app.modules.spec.schemas import (
-    PaginationMeta,
-    SpecBlockListResponse,
-    SpecBlockResponse,
     SpecDocumentResponse,
     SpecExistingCheckResponse,
     SpecUploadResponse,
-    build_spec_pagination,
 )
 from app.shared.storage import delete_file, upload_file
 from app.shared.upload_security import (
@@ -101,20 +95,4 @@ class SpecService:
         return SpecUploadResponse(
             document=SpecDocumentResponse.model_validate(doc),
             message="Specification uploaded. Run spec analysis to extract.",
-        )
-
-    async def list_spec_blocks(
-        self,
-        tenant_id: uuid.UUID,
-        document_id: uuid.UUID,
-        page: int = 1,
-        limit: int = 100,
-    ) -> SpecBlockListResponse:
-        """Fetch stored blocks with pagination."""
-        blocks, total = await self.block_repo.list_by_document(
-            document_id, tenant_id, page, limit
-        )
-        return SpecBlockListResponse(
-            data=[SpecBlockResponse.model_validate(b) for b in blocks],
-            pagination=build_spec_pagination(page, limit, total),
         )

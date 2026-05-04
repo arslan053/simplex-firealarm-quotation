@@ -238,7 +238,7 @@ export function ClientDetailPage() {
                 projects.map((p) => (
                   <tr
                     key={p.id}
-                    onClick={() => navigate(`/projects/${p.id}`)}
+                    onClick={() => navigate(`/projects/${p.id}/setup`)}
                     className="cursor-pointer hover:bg-gray-50 transition-colors"
                   >
                     <td className="px-4 py-3 font-medium text-gray-900">{p.project_name}</td>

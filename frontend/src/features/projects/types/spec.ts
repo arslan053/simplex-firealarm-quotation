@@ -16,25 +16,3 @@ export interface SpecExistingCheckResponse {
   exists: boolean;
   document: SpecDocumentResponse | null;
 }
-
-export interface SpecBlock {
-  id: string;
-  document_id: string;
-  page_no: number;
-  parent_id: string | null;
-  order_in_page: number;
-  style: string;
-  level: number | null;
-  list_kind: string | null;
-  content: string;
-}
-
-export interface SpecBlockListResponse {
-  data: SpecBlock[];
-  pagination: {
-    page: number;
-    limit: number;
-    total: number;
-    total_pages: number;
-  };
-}

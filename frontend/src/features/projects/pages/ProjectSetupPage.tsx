@@ -16,6 +16,7 @@ import { specApi } from '../api/spec.api';
 import { BoqUploadSection } from '../components/BoqUploadSection';
 import { SpecUpload } from '../components/SpecUpload';
 import { QuotationModal } from '../components/QuotationModal';
+import { ProjectInfoEditor } from '../components/ProjectInfoEditor';
 import type { GenerateQuotationRequest } from '../types/quotation';
 import type { QuotationConfigData } from '../types/pipeline';
 import { Card } from '@/shared/ui/Card';
@@ -37,7 +38,6 @@ export function ProjectSetupPage() {
 
   // Upload state
   const [hasBoq, setHasBoq] = useState(false);
-  const [boqRefreshKey] = useState(0);
 
   // Overrides
   const [protocol, setProtocol] = useState('');
@@ -177,18 +177,22 @@ export function ProjectSetupPage() {
         </div>
       </div>
 
+      <ProjectInfoEditor
+        projectId={projectId}
+        onClientClick={(clientId) => navigate(`/clients/${clientId}`)}
+        onEditClick={() => navigate(`/projects/${projectId}/edit`)}
+        onProjectUpdated={(project) => setProjectName(project.project_name)}
+      />
+
       {/* Section 1: Document Upload */}
       <div className="space-y-4">
         <h2 className="text-lg font-semibold text-gray-900">Upload Documents</h2>
         <BoqUploadSection
           projectId={projectId}
-          projectName={projectName}
-          refreshKey={boqRefreshKey}
           onBoqUploaded={() => setHasBoq(true)}
         />
         <SpecUpload
           projectId={projectId}
-          refreshKey={boqRefreshKey}
           onSpecUploaded={() => {}}
         />
       </div>

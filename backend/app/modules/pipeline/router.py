@@ -60,6 +60,19 @@ async def _run_pipeline_background(
                 run_id, tenant_id, project_id, user_id,
                 resume_from=resume_from,
             )
+    except asyncio.CancelledError:
+        logger.warning("Pipeline background task cancelled for run %s", run_id)
+        try:
+            async with get_worker_db(str(tenant_id)) as db:
+                service = PipelineService(db)
+                await service._mark_failed(
+                    run_id,
+                    "pipeline",
+                    "Pipeline task was cancelled before completion. Please retry.",
+                )
+        except Exception as exc:
+            logger.exception("Failed to mark cancelled pipeline %s as failed: %s", run_id, exc)
+        raise
     except Exception as exc:
         logger.exception("Pipeline background task crashed: %s", exc)
 

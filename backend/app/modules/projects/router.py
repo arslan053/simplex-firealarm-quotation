@@ -222,7 +222,7 @@ async def update_project(
         entity_id=str(project.id),
         tenant_id=tenant_id,
         actor_user_id=uuid.UUID(user.id),
-        metadata_json=body.model_dump(exclude_unset=True),
+        metadata_json=body.model_dump(mode="json", exclude_unset=True),
     )
 
     # Re-fetch so client relationship is loaded after update

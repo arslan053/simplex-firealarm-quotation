@@ -231,13 +231,30 @@ class SpecAnalysisService:
         # ── Derive and store protocol on the project ──
         protocol = _derive_protocol(question_map, answers_data)
         if protocol:
+            project_protocol_result = await self.db.execute(
+                select(Project.protocol).where(
+                    Project.id == project_id,
+                    Project.tenant_id == tenant_id,
+                )
+            )
+            existing_protocol = project_protocol_result.scalar_one_or_none()
+            values = {"protocol_auto": protocol}
+            if existing_protocol is None:
+                values["protocol"] = protocol
+
             await self.db.execute(
                 update(Project)
                 .where(Project.id == project_id, Project.tenant_id == tenant_id)
-                .values(protocol=protocol, protocol_auto=protocol)
+                .values(**values)
             )
             await self.db.flush()
-            logger.info("Stored protocol=%s for project %s", protocol, project_id)
+            if existing_protocol:
+                logger.info(
+                    "Stored protocol_auto=%s; preserved explicit protocol=%s for project %s",
+                    protocol, existing_protocol, project_id,
+                )
+            else:
+                logger.info("Stored protocol=%s for project %s", protocol, project_id)
 
         return SpecAnalysisResult(
             project_id=project_id,

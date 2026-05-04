@@ -5,18 +5,6 @@ from uuid import UUID
 from pydantic import BaseModel
 
 
-class JobStartResponse(BaseModel):
-    job_id: str
-    status: str
-    message: str
-
-
-class JobStatusResponse(BaseModel):
-    job_id: str
-    status: str
-    message: str
-
-
 class GateResult(BaseModel):
     q1_total_devices: int
     q1_devices_per_panel: int

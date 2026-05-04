@@ -1,16 +1,3 @@
-export interface JobStartResponse {
-  job_id: string;
-  status: string;
-  message: string;
-}
-
-export interface DeviceSelectionJobStatus {
-  job_id: string;
-  status: 'pending' | 'running' | 'success' | 'failed';
-  message: string;
-  matched_count: number;
-}
-
 export interface DeviceSelectionItem {
   boq_item_id: string;
   boq_description: string | null;

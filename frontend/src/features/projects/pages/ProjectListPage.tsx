@@ -189,7 +189,7 @@ export function ProjectListPage() {
                   <tr
                     key={p.id}
                     className="cursor-pointer hover:bg-gray-50"
-                    onClick={() => navigate(`/projects/${p.id}`)}
+                    onClick={() => navigate(`/projects/${p.id}/setup`)}
                   >
                     <td className="px-4 py-4 font-medium text-gray-900 sm:px-6">
                       <span className="line-clamp-1">{p.project_name}</span>
@@ -231,7 +231,7 @@ export function ProjectListPage() {
                         className="text-xs text-indigo-600 hover:text-indigo-800"
                         onClick={(e) => {
                           e.stopPropagation();
-                          navigate(`/projects/${p.id}`);
+                          navigate(`/projects/${p.id}/setup`);
                         }}
                       >
                         View

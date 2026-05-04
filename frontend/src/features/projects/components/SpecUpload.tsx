@@ -5,15 +5,13 @@ import { specApi } from '../api/spec.api';
 import { Card } from '@/shared/ui/Card';
 import { Button } from '@/shared/ui/Button';
 import { normalizeError } from '@/shared/api/errors';
-import { SpecResults } from './SpecResults';
 
 interface SpecUploadProps {
   projectId: string;
-  refreshKey: number;
   onSpecUploaded: () => void;
 }
 
-export function SpecUpload({ projectId, refreshKey, onSpecUploaded }: SpecUploadProps) {
+export function SpecUpload({ projectId, onSpecUploaded }: SpecUploadProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [existingSpec, setExistingSpec] = useState(false);
@@ -23,7 +21,6 @@ export function SpecUpload({ projectId, refreshKey, onSpecUploaded }: SpecUpload
   const [uploading, setUploading] = useState(false);
   const [uploaded, setUploaded] = useState(false);
   const [error, setError] = useState('');
-  const [documentId, setDocumentId] = useState<string | null>(null);
 
   // Check for existing spec on mount
   useEffect(() => {
@@ -32,7 +29,6 @@ export function SpecUpload({ projectId, refreshKey, onSpecUploaded }: SpecUpload
       .then(({ data }) => {
         setExistingSpec(data.exists);
         if (data.exists && data.document) {
-          setDocumentId(data.document.id);
           setExistingFileName(data.document.original_file_name);
         }
       })
@@ -68,7 +64,6 @@ export function SpecUpload({ projectId, refreshKey, onSpecUploaded }: SpecUpload
     try {
       const { data } = await specApi.upload(projectId, selectedFile);
       setExistingSpec(true);
-      setDocumentId(data.document.id);
       setExistingFileName(data.document.original_file_name);
       setUploaded(true);
       onSpecUploaded();
@@ -174,14 +169,6 @@ export function SpecUpload({ projectId, refreshKey, onSpecUploaded }: SpecUpload
         </div>
       </Card>
 
-      {/* Structured block results */}
-      {documentId && (
-        <SpecResults
-          projectId={projectId}
-          documentId={documentId}
-          refreshKey={refreshKey}
-        />
-      )}
     </div>
   );
 }

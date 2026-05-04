@@ -1,5 +1,4 @@
 import uuid
-from decimal import Decimal
 
 from sqlalchemy import and_, delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -116,33 +115,6 @@ class BoqItemRepository:
         await self.db.flush()
         return items
 
-    async def list_by_project(
-        self,
-        tenant_id: uuid.UUID,
-        project_id: uuid.UUID,
-        page: int = 1,
-        limit: int = 50,
-    ) -> tuple[list[BoqItem], int]:
-        base = and_(
-            BoqItem.tenant_id == tenant_id,
-            BoqItem.project_id == project_id,
-        )
-
-        count_result = await self.db.execute(
-            select(func.count()).select_from(BoqItem).where(base)
-        )
-        total = count_result.scalar_one()
-
-        offset = (page - 1) * limit
-        result = await self.db.execute(
-            select(BoqItem)
-            .where(base)
-            .order_by(BoqItem.row_number.asc())
-            .offset(offset)
-            .limit(limit)
-        )
-        return list(result.scalars().all()), total
-
     async def get_max_row_number(
         self, tenant_id: uuid.UUID, project_id: uuid.UUID
     ) -> int:
@@ -156,23 +128,6 @@ class BoqItemRepository:
             )
         )
         return result.scalar_one()
-
-    async def get_by_id_and_tenant(
-        self,
-        item_id: uuid.UUID,
-        tenant_id: uuid.UUID,
-    ) -> BoqItem | None:
-        result = await self.db.execute(
-            select(BoqItem).where(
-                and_(BoqItem.id == item_id, BoqItem.tenant_id == tenant_id)
-            )
-        )
-        return result.scalar_one_or_none()
-
-    async def update_hidden(self, item: BoqItem, is_hidden: bool) -> BoqItem:
-        item.is_hidden = is_hidden
-        await self.db.flush()
-        return item
 
     async def list_boq_type_items_by_project(
         self,
