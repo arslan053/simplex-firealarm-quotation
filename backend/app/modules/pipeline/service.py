@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import httpx
+from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,6 +30,44 @@ STEPS = [
     "pricing",
     "quotation_generation",
 ]
+
+STEP_TIMEOUT_SECONDS = {
+    "boq_extraction": 15 * 60,
+    "spec_analysis": 15 * 60,
+    "device_selection": 15 * 60,
+    "panel_selection": 15 * 60,
+    "pricing": 2 * 60,
+    "quotation_generation": 2 * 60,
+}
+
+STEP_LABELS = {
+    "boq_extraction": "BOQ extraction",
+    "spec_analysis": "specification analysis",
+    "device_selection": "device selection",
+    "panel_selection": "panel selection",
+    "pricing": "pricing calculation",
+    "quotation_generation": "quotation generation",
+    "pipeline": "pipeline",
+}
+
+
+def _step_label(step: str) -> str:
+    return STEP_LABELS.get(step, step.replace("_", " "))
+
+
+def _error_message(exc: Exception) -> str:
+    if isinstance(exc, HTTPException):
+        detail = exc.detail
+        if isinstance(detail, str) and detail.strip():
+            return detail.strip()
+        if detail is not None:
+            try:
+                return json.dumps(detail)
+            except TypeError:
+                return str(detail)
+
+    message = str(exc).strip()
+    return message or "Pipeline step failed. Please retry."
 
 
 class PipelineService:
@@ -73,7 +113,7 @@ class PipelineService:
             text("""
                 SELECT id, status, current_step, steps_completed,
                        error_message, error_step, retry_count,
-                       started_at, completed_at
+                       started_at, completed_at, updated_at
                 FROM pipeline_runs
                 WHERE tenant_id = :tid AND project_id = :pid
                 ORDER BY created_at DESC
@@ -94,6 +134,7 @@ class PipelineService:
             "retry_count": row[6],
             "started_at": row[7].isoformat() if row[7] else None,
             "completed_at": row[8].isoformat() if row[8] else None,
+            "updated_at": row[9].isoformat() if row[9] else None,
         }
 
     async def _update_run(self, run_id: uuid.UUID, **fields: object) -> None:
@@ -241,6 +282,53 @@ class PipelineService:
         )
         await self.db.commit()
 
+    async def _rollback_step_work(self, run_id: uuid.UUID, step: str) -> None:
+        try:
+            await self.db.rollback()
+        except Exception:
+            logger.exception("Pipeline %s: rollback failed after step %s error", run_id, step)
+
+    async def mark_stale_run_failed_if_needed(
+        self,
+        run: dict,
+        tenant_id: uuid.UUID,
+        project_id: uuid.UUID,
+    ) -> dict:
+        if run["status"] != "running":
+            return run
+
+        step = run.get("current_step") or "pipeline"
+        timeout_seconds = STEP_TIMEOUT_SECONDS.get(step, 15 * 60)
+        updated_at_raw = run.get("updated_at")
+        if not updated_at_raw:
+            return run
+
+        updated_at = datetime.fromisoformat(updated_at_raw)
+        if updated_at.tzinfo is None:
+            updated_at = updated_at.replace(tzinfo=timezone.utc)
+
+        stale_after = updated_at + timedelta(seconds=timeout_seconds)
+        if datetime.now(timezone.utc) <= stale_after:
+            return run
+
+        message = (
+            f"Pipeline appears stuck at {_step_label(step)}. No progress was recorded for "
+            f"{timeout_seconds // 60} minutes. Please retry."
+        )
+        await self._mark_failed(uuid.UUID(run["id"]), step, message)
+        await self._notify_n8n_pipeline_callback(
+            run_id=uuid.UUID(run["id"]),
+            tenant_id=tenant_id,
+            project_id=project_id,
+            status="failed",
+            error_step=step,
+            error_message=message,
+        )
+        run["status"] = "failed"
+        run["error_step"] = step
+        run["error_message"] = message
+        return run
+
     # ------------------------------------------------------------------
     # Orchestrator — runs all steps in sequence
     # ------------------------------------------------------------------
@@ -266,33 +354,41 @@ class PipelineService:
             logger.info("Pipeline %s: starting step %s", run_id, step)
 
             try:
-                await self._execute_step(step, tenant_id, project_id, user_id)
-                steps_completed.append(step)
-            except Exception as exc:
-                logger.warning(
-                    "Pipeline %s: step %s failed (attempt 1): %s",
-                    run_id, step, exc,
+                timeout = STEP_TIMEOUT_SECONDS[step]
+                await asyncio.wait_for(
+                    self._execute_step(step, tenant_id, project_id, user_id),
+                    timeout=timeout,
                 )
-                # Auto-retry once
-                await self._increment_retry(run_id)
-                try:
-                    await self._execute_step(step, tenant_id, project_id, user_id)
-                    steps_completed.append(step)
-                except Exception as retry_exc:
-                    logger.error(
-                        "Pipeline %s: step %s failed (attempt 2): %s",
-                        run_id, step, retry_exc,
-                    )
-                    await self._mark_failed(run_id, step, str(retry_exc))
-                    await self._notify_n8n_pipeline_callback(
-                        run_id=run_id,
-                        tenant_id=tenant_id,
-                        project_id=project_id,
-                        status="failed",
-                        error_step=step,
-                        error_message=str(retry_exc),
-                    )
-                    return
+                steps_completed.append(step)
+            except asyncio.TimeoutError:
+                minutes = STEP_TIMEOUT_SECONDS[step] // 60
+                message = f"{_step_label(step)} exceeded the {minutes} minute timeout. Please retry."
+                logger.error("Pipeline %s: %s", run_id, message)
+                await self._rollback_step_work(run_id, step)
+                await self._mark_failed(run_id, step, message)
+                await self._notify_n8n_pipeline_callback(
+                    run_id=run_id,
+                    tenant_id=tenant_id,
+                    project_id=project_id,
+                    status="failed",
+                    error_step=step,
+                    error_message=message,
+                )
+                return
+            except Exception as exc:
+                message = _error_message(exc)
+                logger.error("Pipeline %s: step %s failed: %s", run_id, step, message, exc_info=True)
+                await self._rollback_step_work(run_id, step)
+                await self._mark_failed(run_id, step, message)
+                await self._notify_n8n_pipeline_callback(
+                    run_id=run_id,
+                    tenant_id=tenant_id,
+                    project_id=project_id,
+                    status="failed",
+                    error_step=step,
+                    error_message=message,
+                )
+                return
 
         await self._mark_completed(run_id, steps_completed)
         await self._notify_n8n_pipeline_callback(
@@ -302,17 +398,6 @@ class PipelineService:
             status="completed",
         )
         logger.info("Pipeline %s completed successfully", run_id)
-
-    async def _increment_retry(self, run_id: uuid.UUID) -> None:
-        await self.db.execute(
-            text("""
-                UPDATE pipeline_runs
-                SET retry_count = retry_count + 1, updated_at = :now
-                WHERE id = :run_id
-            """),
-            {"now": datetime.now(timezone.utc), "run_id": run_id},
-        )
-        await self.db.commit()
 
     async def _execute_step(
         self,

@@ -15,6 +15,13 @@ from app.modules.device_selection.schemas import DeviceSelectionResult
 from app.modules.projects.models import Project
 from app.modules.spec.models import SpecBlock
 from app.shared.openai_client import get_openai_client
+from app.shared.pipeline_errors import (
+    empty_boq_output_error,
+    incomplete_ai_response_error,
+    invalid_ai_response_error,
+    no_ai_text_error,
+    normalize_openai_error,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -344,10 +351,7 @@ class DeviceSelectionService:
         boq_items = list(boq_result.scalars().all())
 
         if not boq_items:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="No BOQ items found. Extract BOQ first.",
-            )
+            raise empty_boq_output_error()
 
         # ── 2. Determine saved project preferences ──
         project_prefs = await self._get_project_preferences(tenant_id, project_id)
@@ -467,33 +471,42 @@ class DeviceSelectionService:
             )
 
             client = get_openai_client()
-            response = await client.responses.create(
-                model="gpt-5.2",
-                instructions=SYSTEM_PROMPT,
-                input=[{"role": "user", "content": user_msg}],
-            )
+            try:
+                response = await client.responses.create(
+                    model="gpt-5.2",
+                    instructions=SYSTEM_PROMPT,
+                    input=[{"role": "user", "content": user_msg}],
+                )
+            except Exception as exc:
+                raise normalize_openai_error("device_selection", exc) from exc
 
             raw_text = _extract_text(response)
             parsed = _parse_json(raw_text)
 
-            if isinstance(parsed, dict) and "matches" in parsed:
-                all_matches.extend(parsed["matches"])
-                if "notification_protocol" in parsed:
-                    raw_np = parsed["notification_protocol"]
-                    if raw_np in ("addressable", "non_addressable"):
-                        notification_type = raw_np
-                    logger.info(
-                        "Device selection batch %d: notification_protocol=%s",
-                        i, raw_np,
-                    )
-                if "network_type" in parsed:
-                    network_type = parsed["network_type"]
-                    logger.info(
-                        "Device selection batch %d: network_type=%s",
-                        i, network_type,
-                    )
-            else:
-                logger.warning("Unexpected LLM response format for batch starting at %d", i)
+            if not isinstance(parsed, dict) or "matches" not in parsed:
+                raise incomplete_ai_response_error("device_selection")
+            matches = parsed["matches"]
+            if not isinstance(matches, list) or not matches:
+                raise incomplete_ai_response_error("device_selection")
+
+            all_matches.extend(matches)
+            if "notification_protocol" in parsed:
+                raw_np = parsed["notification_protocol"]
+                if raw_np in ("addressable", "non_addressable"):
+                    notification_type = raw_np
+                logger.info(
+                    "Device selection batch %d: notification_protocol=%s",
+                    i, raw_np,
+                )
+            if "network_type" in parsed:
+                network_type = parsed["network_type"]
+                logger.info(
+                    "Device selection batch %d: network_type=%s",
+                    i, network_type,
+                )
+
+        if not all_matches:
+            raise incomplete_ai_response_error("device_selection")
 
         # ── 5a. Handle spec-added items (workstation & printer) ──
         spec_added_markers = [
@@ -878,7 +891,7 @@ def _extract_text(response) -> str:
             for block in getattr(item, "content", []):
                 if getattr(block, "type", None) == "output_text":
                     return block.text
-    raise RuntimeError("GPT-5.2 did not return a text response")
+    raise no_ai_text_error("device_selection")
 
 
 def _parse_json(raw: str) -> dict:
@@ -890,7 +903,4 @@ def _parse_json(raw: str) -> dict:
         return json.loads(text)
     except json.JSONDecodeError as e:
         logger.error("Failed to parse LLM JSON: %s\nRaw: %s", e, raw[:500])
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="AI returned an invalid response. Please try again.",
-        )
+        raise invalid_ai_response_error("device_selection")

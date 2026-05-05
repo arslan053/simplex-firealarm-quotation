@@ -24,6 +24,16 @@ from app.modules.spec_analysis.prompts import (
 )
 from app.modules.spec_analysis.schemas import SpecAnalysisResult
 from app.shared.openai_client import get_openai_client
+from app.shared.pipeline_errors import (
+    empty_boq_output_error,
+    incomplete_ai_response_error,
+    invalid_ai_response_error,
+    is_storage_error,
+    no_ai_text_error,
+    normalize_openai_error,
+    save_output_error,
+    storage_read_error,
+)
 from app.shared.storage import get_file_bytes
 
 logger = logging.getLogger(__name__)
@@ -59,10 +69,7 @@ class SpecAnalysisService:
         )
         boq_items = list(boq_items_result.scalars().all())
         if not boq_items:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="No BOQ items found. Extract BOQ first.",
-            )
+            raise empty_boq_output_error()
 
         # ── Guard: Questions must exist ──
         # Only load Protocol_decision and Panel_selection questions.
@@ -100,7 +107,12 @@ class SpecAnalysisService:
         # ── Build GPT input depending on spec availability ──
         if has_spec:
             # Full path: spec PDF + BOQ JSON
-            spec_bytes = get_file_bytes(spec_doc.object_key)
+            try:
+                spec_bytes = get_file_bytes(spec_doc.object_key)
+            except Exception as exc:
+                if is_storage_error(exc):
+                    raise storage_read_error("spec_analysis", exc) from exc
+                raise
             spec_b64 = base64.standard_b64encode(spec_bytes).decode("ascii")
 
             content_parts: list[dict] = [
@@ -126,135 +138,142 @@ class SpecAnalysisService:
             project_id, has_spec,
         )
         client = get_openai_client()
-        response = await client.responses.create(
-            model="gpt-5.2",
-            instructions=system_prompt,
-            input=[{"role": "user", "content": content_parts}],
-        )
+        try:
+            response = await client.responses.create(
+                model="gpt-5.2",
+                instructions=system_prompt,
+                input=[{"role": "user", "content": content_parts}],
+            )
+        except Exception as exc:
+            raise normalize_openai_error("spec_analysis", exc) from exc
 
         raw_text = _extract_text(response)
         parsed = _parse_json(raw_text)
 
         if not isinstance(parsed, dict):
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="Spec analysis: AI returned an unexpected format.",
-            )
+            raise invalid_ai_response_error("spec_analysis")
         for key in ("spec_markdown", "analysis_answers"):
             if key not in parsed:
-                raise HTTPException(
-                    status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail=f"Spec analysis: AI response missing required key: {key}",
-                )
+                raise incomplete_ai_response_error("spec_analysis")
 
         logger.info(
             "Spec analysis complete: %d answers",
             len(parsed.get("analysis_answers", [])),
         )
 
-        # ── Delete old analysis answers ──
-        await self.db.execute(
-            delete(AnalysisAnswer).where(
-                AnalysisAnswer.tenant_id == tenant_id,
-                AnalysisAnswer.project_id == project_id,
-            )
-        )
-        await self.db.flush()
-
-        # ── Store spec blocks (only when spec exists) ──
-        spec_blocks: list = []
-        if has_spec:
-            # Re-verify the document still exists — the user may have uploaded
-            # a new spec while the GPT call was running, which deletes the old one.
-            current_doc = await self.spec_doc_repo.get_existing_spec(tenant_id, project_id)
-            if current_doc is None or current_doc.id != spec_doc.id:
-                logger.warning(
-                    "Spec document changed during analysis for project %s. "
-                    "Using current document.",
-                    project_id,
-                )
-                spec_doc = current_doc
-
-            if spec_doc is not None:
-                await self.spec_block_repo.delete_by_document(spec_doc.id, tenant_id)
-                spec_markdown = parsed.get("spec_markdown", "")
-                spec_blocks = parse_spec_markdown(
-                    spec_markdown, spec_doc.id, tenant_id,
-                    start_page=1, end_page=1,
-                )
-                if spec_blocks:
-                    await self.spec_block_repo.bulk_create(spec_blocks)
-
-        # ── Store analysis answers ──
-        question_map = {q.question_no: q for q in questions}
-        answers_data = parsed.get("analysis_answers", [])
-        answer_models: list[AnalysisAnswer] = []
-
-        for item in answers_data:
-            q_no = item.get("question_no")
-            question = question_map.get(q_no)
-            if not question:
-                continue
-
-            answer = str(item.get("answer", "No"))
-            if answer not in ("Yes", "No"):
-                answer = "No"
-
-            confidence = str(item.get("confidence", "Low"))
-            if confidence not in ("High", "Medium", "Low"):
-                confidence = "Low"
-
-            inferred = str(item.get("inferred_from", "Both"))
-            if inferred not in ("BOQ", "Specs", "Both"):
-                inferred = "Both"
-
-            supporting = item.get("supporting_points", [])
-            if not isinstance(supporting, list):
-                supporting = [str(supporting)]
-
-            answer_models.append(
-                AnalysisAnswer(
-                    tenant_id=tenant_id,
-                    project_id=project_id,
-                    question_id=question.id,
-                    answer=answer,
-                    confidence=confidence,
-                    supporting_notes=json.dumps(supporting),
-                    inferred_from=inferred,
-                )
-            )
-
-        if answer_models:
-            self.db.add_all(answer_models)
-            await self.db.flush()
-
-        # ── Derive and store protocol on the project ──
-        protocol = _derive_protocol(question_map, answers_data)
-        if protocol:
-            project_protocol_result = await self.db.execute(
-                select(Project.protocol).where(
-                    Project.id == project_id,
-                    Project.tenant_id == tenant_id,
-                )
-            )
-            existing_protocol = project_protocol_result.scalar_one_or_none()
-            values = {"protocol_auto": protocol}
-            if existing_protocol is None:
-                values["protocol"] = protocol
-
+        try:
+            # ── Delete old analysis answers ──
             await self.db.execute(
-                update(Project)
-                .where(Project.id == project_id, Project.tenant_id == tenant_id)
-                .values(**values)
+                delete(AnalysisAnswer).where(
+                    AnalysisAnswer.tenant_id == tenant_id,
+                    AnalysisAnswer.project_id == project_id,
+                )
             )
             await self.db.flush()
-            if existing_protocol:
-                logger.info(
-                    "Stored protocol_auto=%s; preserved explicit protocol=%s for project %s",
-                    protocol, existing_protocol, project_id,
+
+            # ── Store spec blocks (only when spec exists) ──
+            spec_blocks: list = []
+            if has_spec:
+                # Re-verify the document still exists — the user may have uploaded
+                # a new spec while the GPT call was running, which deletes the old one.
+                current_doc = await self.spec_doc_repo.get_existing_spec(tenant_id, project_id)
+                if current_doc is None or current_doc.id != spec_doc.id:
+                    logger.warning(
+                        "Spec document changed during analysis for project %s. "
+                        "Using current document.",
+                        project_id,
+                    )
+                    spec_doc = current_doc
+
+                if spec_doc is not None:
+                    await self.spec_block_repo.delete_by_document(spec_doc.id, tenant_id)
+                    spec_markdown = parsed.get("spec_markdown", "")
+                    spec_blocks = parse_spec_markdown(
+                        spec_markdown, spec_doc.id, tenant_id,
+                        start_page=1, end_page=1,
+                    )
+                    if spec_blocks:
+                        await self.spec_block_repo.bulk_create(spec_blocks)
+
+            # ── Store analysis answers ──
+            question_map = {q.question_no: q for q in questions}
+            answers_data = parsed.get("analysis_answers", [])
+            if not isinstance(answers_data, list):
+                raise invalid_ai_response_error("spec_analysis")
+            answer_models: list[AnalysisAnswer] = []
+
+            for item in answers_data:
+                if not isinstance(item, dict):
+                    continue
+
+                q_no = item.get("question_no")
+                question = question_map.get(q_no)
+                if not question:
+                    continue
+
+                answer = str(item.get("answer", "No"))
+                if answer not in ("Yes", "No"):
+                    answer = "No"
+
+                confidence = str(item.get("confidence", "Low"))
+                if confidence not in ("High", "Medium", "Low"):
+                    confidence = "Low"
+
+                inferred = str(item.get("inferred_from", "Both"))
+                if inferred not in ("BOQ", "Specs", "Both"):
+                    inferred = "Both"
+
+                supporting = item.get("supporting_points", [])
+                if not isinstance(supporting, list):
+                    supporting = [str(supporting)]
+
+                answer_models.append(
+                    AnalysisAnswer(
+                        tenant_id=tenant_id,
+                        project_id=project_id,
+                        question_id=question.id,
+                        answer=answer,
+                        confidence=confidence,
+                        supporting_notes=json.dumps(supporting),
+                        inferred_from=inferred,
+                    )
                 )
-            else:
-                logger.info("Stored protocol=%s for project %s", protocol, project_id)
+
+            if answer_models:
+                self.db.add_all(answer_models)
+                await self.db.flush()
+
+            # ── Derive and store protocol on the project ──
+            protocol = _derive_protocol(question_map, answers_data)
+            if protocol:
+                project_protocol_result = await self.db.execute(
+                    select(Project.protocol).where(
+                        Project.id == project_id,
+                        Project.tenant_id == tenant_id,
+                    )
+                )
+                existing_protocol = project_protocol_result.scalar_one_or_none()
+                values = {"protocol_auto": protocol}
+                if existing_protocol is None:
+                    values["protocol"] = protocol
+
+                await self.db.execute(
+                    update(Project)
+                    .where(Project.id == project_id, Project.tenant_id == tenant_id)
+                    .values(**values)
+                )
+                await self.db.flush()
+                if existing_protocol:
+                    logger.info(
+                        "Stored protocol_auto=%s; preserved explicit protocol=%s for project %s",
+                        protocol, existing_protocol, project_id,
+                    )
+                else:
+                    logger.info("Stored protocol=%s for project %s", protocol, project_id)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise save_output_error("spec_analysis", exc) from exc
 
         return SpecAnalysisResult(
             project_id=project_id,
@@ -276,7 +295,7 @@ def _extract_text(response) -> str:
             for block in getattr(item, "content", []):
                 if getattr(block, "type", None) == "output_text":
                     return block.text
-    raise RuntimeError("GPT-5.2 did not return a text response")
+    raise no_ai_text_error("spec_analysis")
 
 
 def _derive_protocol(
@@ -313,7 +332,4 @@ def _parse_json(raw: str) -> dict:
         return json.loads(text)
     except json.JSONDecodeError as e:
         logger.error("Failed to parse GPT JSON: %s\nRaw: %s", e, raw[:500])
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="AI returned an invalid response. Please try again.",
-        )
+        raise invalid_ai_response_error("spec_analysis")

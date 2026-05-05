@@ -131,6 +131,7 @@ async def get_pipeline_status(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No pipeline run found for this project.",
         )
+    run = await service.mark_stale_run_failed_if_needed(run, tenant_id, project_id)
 
     return PipelineStatusResponse(**run)
 
@@ -158,16 +159,28 @@ async def retry_pipeline(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No failed pipeline to retry.",
         )
+    if run["retry_count"] >= 1:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This pipeline has already been retried once.",
+        )
 
     run_id = uuid.UUID(run["id"])
     resume_from = run["error_step"]
+    if not resume_from:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Failed pipeline does not have a retry step.",
+        )
 
     # Reset error state
     await service._update_run(
         run_id,
         status="running",
+        current_step=resume_from,
         error_message=None,
         error_step=None,
+        retry_count=run["retry_count"] + 1,
     )
 
     asyncio.create_task(

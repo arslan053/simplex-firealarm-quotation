@@ -7,6 +7,8 @@ from decimal import Decimal, ROUND_HALF_UP
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.shared.pipeline_errors import empty_pricing_output_error, save_output_error
+
 from .schemas import PricingItem, PricingResponse, ProductDetail
 
 USD_TO_SAR = Decimal("3.75")
@@ -28,50 +30,55 @@ class PricingService:
         # 1. Get project name
         project_name = await self._get_project_name(tenant_id, project_id)
 
-        # 2. Delete existing pricing items (idempotent)
-        await self.db.execute(
-            text(
-                "DELETE FROM pricing_items "
-                "WHERE tenant_id = :tid AND project_id = :pid"
-            ),
-            {"tid": tenant_id, "pid": project_id},
-        )
-
-        # 3. Fetch device selection pricing rows
+        # 2. Fetch device selection pricing rows
         device_items = await self._build_device_items(tenant_id, project_id)
 
-        # 4. Fetch panel selection pricing rows
+        # 3. Fetch panel selection pricing rows
         panel_items = await self._build_panel_items(tenant_id, project_id)
 
-        # 5. Bulk insert all pricing items
+        # 4. Bulk insert all pricing items
         all_items = device_items + panel_items
-        for item in all_items:
+        if not all_items:
+            raise empty_pricing_output_error()
+
+        try:
             await self.db.execute(
-                text("""
-                    INSERT INTO pricing_items
-                        (tenant_id, project_id, section, row_number,
-                         description, quantity, unit_cost_sar, total_sar,
-                         product_details, source_id)
-                    VALUES
-                        (:tid, :pid, :section, :row_number,
-                         :description, :quantity, :unit_cost_sar, :total_sar,
-                         CAST(:product_details AS jsonb), :source_id)
-                """),
-                {
-                    "tid": tenant_id,
-                    "pid": project_id,
-                    "section": item.section,
-                    "row_number": item.row_number,
-                    "description": item.description,
-                    "quantity": item.quantity,
-                    "unit_cost_sar": item.unit_cost_sar,
-                    "total_sar": item.total_sar,
-                    "product_details": _product_details_json(item.product_details),
-                    "source_id": item.id if _is_uuid(item.id) else None,
-                },
+                text(
+                    "DELETE FROM pricing_items "
+                    "WHERE tenant_id = :tid AND project_id = :pid"
+                ),
+                {"tid": tenant_id, "pid": project_id},
             )
 
-        # 6. Build response
+            for item in all_items:
+                await self.db.execute(
+                    text("""
+                        INSERT INTO pricing_items
+                            (tenant_id, project_id, section, row_number,
+                             description, quantity, unit_cost_sar, total_sar,
+                             product_details, source_id)
+                        VALUES
+                            (:tid, :pid, :section, :row_number,
+                             :description, :quantity, :unit_cost_sar, :total_sar,
+                             CAST(:product_details AS jsonb), :source_id)
+                    """),
+                    {
+                        "tid": tenant_id,
+                        "pid": project_id,
+                        "section": item.section,
+                        "row_number": item.row_number,
+                        "description": item.description,
+                        "quantity": item.quantity,
+                        "unit_cost_sar": item.unit_cost_sar,
+                        "total_sar": item.total_sar,
+                        "product_details": _product_details_json(item.product_details),
+                        "source_id": item.id if _is_uuid(item.id) else None,
+                    },
+                )
+        except Exception as exc:
+            raise save_output_error("pricing", exc) from exc
+
+        # 5. Build response
         device_subtotal = float(sum(Decimal(str(i.total_sar)) for i in device_items))
         panel_subtotal = float(sum(Decimal(str(i.total_sar)) for i in panel_items))
 
