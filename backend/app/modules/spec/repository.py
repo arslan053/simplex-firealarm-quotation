@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import and_, delete, func, select
+from sqlalchemy import and_, delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.boq.models import Document
@@ -62,33 +62,6 @@ class SpecBlockRepository:
         self.db.add_all(blocks)
         await self.db.flush()
         return blocks
-
-    async def list_by_document(
-        self,
-        document_id: uuid.UUID,
-        tenant_id: uuid.UUID,
-        page: int = 1,
-        limit: int = 100,
-    ) -> tuple[list[SpecBlock], int]:
-        base = and_(
-            SpecBlock.document_id == document_id,
-            SpecBlock.tenant_id == tenant_id,
-        )
-
-        count_result = await self.db.execute(
-            select(func.count()).select_from(SpecBlock).where(base)
-        )
-        total = count_result.scalar_one()
-
-        offset = (page - 1) * limit
-        result = await self.db.execute(
-            select(SpecBlock)
-            .where(base)
-            .order_by(SpecBlock.page_no.asc(), SpecBlock.order_in_page.asc())
-            .offset(offset)
-            .limit(limit)
-        )
-        return list(result.scalars().all()), total
 
     async def delete_by_document(
         self, document_id: uuid.UUID, tenant_id: uuid.UUID

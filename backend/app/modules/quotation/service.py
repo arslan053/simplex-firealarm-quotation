@@ -13,6 +13,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.shared.pipeline_errors import document_generation_error, storage_write_error
 from app.shared.storage import delete_file, get_file_bytes, get_file_url, upload_file
 
 from .excel_generator import generate_quotation_xlsx
@@ -192,8 +193,11 @@ class QuotationService:
             signatory_name=tenant_settings.get("signatory_name"),
             company_phone=tenant_settings.get("company_phone"),
         )
-        docx_bytes = generate_quotation(qdata)
-        xlsx_bytes = generate_quotation_xlsx(qdata)
+        try:
+            docx_bytes = generate_quotation(qdata)
+            xlsx_bytes = generate_quotation_xlsx(qdata)
+        except Exception as exc:
+            raise document_generation_error(exc) from exc
 
         # 6b. Check for existing quotation
         existing = await self._get_existing(tenant_id, project_id)
@@ -214,16 +218,19 @@ class QuotationService:
                 except Exception:
                     pass  # Old file may already be gone
 
-        upload_file(
-            docx_key,
-            docx_bytes,
-            content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        )
-        upload_file(
-            xlsx_key,
-            xlsx_bytes,
-            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
+        try:
+            upload_file(
+                docx_key,
+                docx_bytes,
+                content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+            upload_file(
+                xlsx_key,
+                xlsx_bytes,
+                content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        except Exception as exc:
+            raise storage_write_error("quotation_generation", exc) from exc
         object_key = docx_key
 
         now = datetime.now(timezone.utc)

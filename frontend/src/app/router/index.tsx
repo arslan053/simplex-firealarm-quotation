@@ -13,11 +13,8 @@ import { CompaniesPage } from '@/features/admin/pages/CompaniesPage';
 import { UsersPage } from '@/features/users/pages/UsersPage';
 import { ProjectListPage } from '@/features/projects/pages/ProjectListPage';
 import { CreateProjectPage } from '@/features/projects/pages/CreateProjectPage';
-import { ProjectDetailPage } from '@/features/projects/pages/ProjectDetailPage';
-import { DeviceSelectionPage } from '@/features/projects/pages/DeviceSelectionPage';
-import { ProjectResultsPage } from '@/features/projects/pages/ProjectResultsPage';
-import { PricingPage } from '@/features/projects/pages/PricingPage';
 import { ProjectSetupPage } from '@/features/projects/pages/ProjectSetupPage';
+import { ProjectEditPage } from '@/features/projects/pages/ProjectEditPage';
 import { PipelineProgressPage } from '@/features/projects/pages/PipelineProgressPage';
 import { ProjectCompletedPage } from '@/features/projects/pages/ProjectCompletedPage';
 import { ClientListPage } from '@/features/clients/pages/ClientListPage';
@@ -62,13 +59,10 @@ const router = createBrowserRouter([
       { path: 'clients/:clientId', element: <ClientDetailPage /> },
       { path: 'projects', element: <ProjectListPage /> },
       { path: 'projects/new', element: <CreateProjectPage /> },
-      { path: 'projects/:projectId', element: <ProjectDetailPage /> },
       { path: 'projects/:projectId/setup', element: <ProjectSetupPage /> },
+      { path: 'projects/:projectId/edit', element: <ProjectEditPage /> },
       { path: 'projects/:projectId/progress', element: <PipelineProgressPage /> },
       { path: 'projects/:projectId/completed', element: <ProjectCompletedPage /> },
-      { path: 'projects/:projectId/results', element: <ProjectResultsPage /> },
-      { path: 'projects/:projectId/device-selection', element: <DeviceSelectionPage /> },
-      { path: 'projects/:projectId/pricing', element: <PricingPage /> },
       { path: 'billing', element: <BillingPage /> },
       { path: 'billing/verify', element: <PaymentVerifyPage /> },
       {

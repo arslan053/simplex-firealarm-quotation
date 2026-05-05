@@ -4,19 +4,6 @@ from uuid import UUID
 from pydantic import BaseModel
 
 
-class JobStartResponse(BaseModel):
-    job_id: str
-    status: str  # "started"
-    message: str
-
-
-class JobStatusResponse(BaseModel):
-    job_id: str
-    status: str  # "pending" | "running" | "success" | "failed"
-    message: str
-    matched_count: int = 0
-
-
 class DeviceSelectionResult(BaseModel):
     project_id: UUID
     status: str

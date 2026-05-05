@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
-  Download,
   Eye,
   FileSpreadsheet,
   FileText,
@@ -269,9 +268,8 @@ export function ProjectCompletedPage() {
           <DeviceSelectionSection
             projectId={projectId}
             projectName={projectName}
-            readOnly
           />
-          <PanelConfigurationSection projectId={projectId} readOnly />
+          <PanelConfigurationSection projectId={projectId} />
         </div>
       )}
 

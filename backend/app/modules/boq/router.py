@@ -1,7 +1,7 @@
 import uuid
 from typing import List
 
-from fastapi import APIRouter, Depends, Query, Request, UploadFile, File
+from fastapi import APIRouter, Depends, Response, Request, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_tenant_db
@@ -14,10 +14,7 @@ from app.dependencies.auth import (
 )
 from app.modules.projects.service import ProjectService
 from app.modules.boq.schemas import (
-    BoqItemListResponse,
-    BoqItemResponse,
     DocumentResponse,
-    ToggleHiddenRequest,
 )
 from app.modules.boq.service import BoqService
 
@@ -66,58 +63,6 @@ async def upload_boq(
 
 
 @router.get(
-    "/items",
-    response_model=BoqItemListResponse,
-    dependencies=[
-        Depends(require_tenant_domain),
-        Depends(require_tenant_match),
-        require_role("admin", "employee"),
-    ],
-)
-async def list_boq_items(
-    project_id: uuid.UUID,
-    request: Request,
-    user: UserContext = Depends(get_current_user),
-    db: AsyncSession = Depends(get_tenant_db),
-    page: int = Query(1, ge=1),
-    limit: int = Query(50, ge=1, le=200),
-):
-    tenant = request.state.tenant
-    tenant_id = uuid.UUID(tenant["id"])
-
-    await _verify_project_ownership(project_id, user, tenant_id, db)
-
-    service = BoqService(db)
-    return await service.list_boq_items(tenant_id, project_id, page=page, limit=limit)
-
-
-@router.patch(
-    "/items/{item_id}/visibility",
-    response_model=BoqItemResponse,
-    dependencies=[
-        Depends(require_tenant_domain),
-        Depends(require_tenant_match),
-        require_role("admin", "employee"),
-    ],
-)
-async def toggle_boq_item_visibility(
-    project_id: uuid.UUID,
-    item_id: uuid.UUID,
-    body: ToggleHiddenRequest,
-    request: Request,
-    user: UserContext = Depends(get_current_user),
-    db: AsyncSession = Depends(get_tenant_db),
-):
-    tenant = request.state.tenant
-    tenant_id = uuid.UUID(tenant["id"])
-
-    await _verify_project_ownership(project_id, user, tenant_id, db)
-
-    service = BoqService(db)
-    return await service.toggle_boq_item_hidden(item_id, tenant_id, body.is_hidden)
-
-
-@router.get(
     "/documents",
     response_model=list[DocumentResponse],
     dependencies=[
@@ -139,6 +84,32 @@ async def list_boq_documents(
 
     service = BoqService(db)
     return await service.list_documents(tenant_id, project_id)
+
+
+@router.delete(
+    "/documents/{document_id}",
+    status_code=204,
+    dependencies=[
+        Depends(require_tenant_domain),
+        Depends(require_tenant_match),
+        require_role("admin", "employee"),
+    ],
+)
+async def remove_boq_document(
+    project_id: uuid.UUID,
+    document_id: uuid.UUID,
+    request: Request,
+    user: UserContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
+):
+    tenant = request.state.tenant
+    tenant_id = uuid.UUID(tenant["id"])
+
+    await _verify_project_ownership(project_id, user, tenant_id, db)
+
+    service = BoqService(db)
+    await service.remove_boq_document(tenant_id, project_id, document_id)
+    return Response(status_code=204)
 
 
 @router.post(

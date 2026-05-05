@@ -15,6 +15,12 @@ from app.modules.projects.models import Project
 from app.modules.prompt_questions.models import PromptQuestion
 from app.modules.spec.models import SpecBlock
 from app.shared.openai_client import get_openai_client
+from app.shared.pipeline_errors import (
+    incomplete_ai_response_error,
+    invalid_ai_response_error,
+    no_ai_text_error,
+    normalize_openai_error,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1792,21 +1798,23 @@ class PanelSelectionService:
         logger.info("Panel selection: calling LLM for %d questions", len(questions))
 
         client = get_openai_client()
-        response = await client.responses.create(
-            model="gpt-5.2",
-            instructions=SYSTEM_PROMPT,
-            input=[{"role": "user", "content": user_msg}],
-        )
+        try:
+            response = await client.responses.create(
+                model="gpt-5.2",
+                instructions=SYSTEM_PROMPT,
+                input=[{"role": "user", "content": user_msg}],
+            )
+        except Exception as exc:
+            raise normalize_openai_error("panel_selection", exc) from exc
 
         raw_text = _extract_text(response)
         parsed = _parse_json(raw_text)
 
         if not isinstance(parsed, dict) or "answers" not in parsed:
             logger.error("Unexpected LLM response format: %s", raw_text[:500])
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="AI returned an invalid response. Please try again.",
-            )
+            raise incomplete_ai_response_error("panel_selection")
+        if not isinstance(parsed["answers"], list) or not parsed["answers"]:
+            raise incomplete_ai_response_error("panel_selection")
 
         return parsed["answers"]
 
@@ -1932,7 +1940,7 @@ def _extract_text(response) -> str:
             for block in getattr(item, "content", []):
                 if getattr(block, "type", None) == "output_text":
                     return block.text
-    raise RuntimeError("GPT-5.2 did not return a text response")
+    raise no_ai_text_error("panel_selection")
 
 
 def _parse_json(raw: str) -> dict:
@@ -1944,7 +1952,4 @@ def _parse_json(raw: str) -> dict:
         return json.loads(txt)
     except json.JSONDecodeError as e:
         logger.error("Failed to parse LLM JSON: %s\nRaw: %s", e, raw[:500])
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="AI returned an invalid response. Please try again.",
-        )
+        raise invalid_ai_response_error("panel_selection")

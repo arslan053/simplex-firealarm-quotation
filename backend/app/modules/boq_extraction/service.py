@@ -16,6 +16,16 @@ from app.modules.boq_extraction.prompts import SYSTEM_PROMPT, USER_PROMPT
 from app.modules.boq_extraction.schemas import BoqExtractionResult
 from app.modules.spec.repository import SpecDocumentRepository
 from app.shared.openai_client import get_openai_client
+from app.shared.pipeline_errors import (
+    empty_boq_output_error,
+    incomplete_ai_response_error,
+    invalid_ai_response_error,
+    is_storage_error,
+    no_ai_text_error,
+    normalize_openai_error,
+    save_output_error,
+    storage_read_error,
+)
 from app.shared.storage import get_file_bytes
 
 logger = logging.getLogger(__name__)
@@ -63,7 +73,12 @@ class BoqExtractionService:
             )
 
         boq_doc = boq_docs[0]
-        boq_bytes = get_file_bytes(boq_doc.object_key)
+        try:
+            boq_bytes = get_file_bytes(boq_doc.object_key)
+        except Exception as exc:
+            if is_storage_error(exc):
+                raise storage_read_error("boq_extraction", exc) from exc
+            raise
 
         boq_filename = boq_doc.original_file_name or "boq.pdf"
         boq_ext = boq_filename.rsplit(".", 1)[-1].lower()
@@ -81,7 +96,12 @@ class BoqExtractionService:
 
         spec_doc = await self.spec_doc_repo.get_existing_spec(tenant_id, project_id)
         if spec_doc:
-            spec_bytes = get_file_bytes(spec_doc.object_key)
+            try:
+                spec_bytes = get_file_bytes(spec_doc.object_key)
+            except Exception as exc:
+                if is_storage_error(exc):
+                    raise storage_read_error("spec_analysis", exc) from exc
+                raise
             spec_b64 = base64.standard_b64encode(spec_bytes).decode("ascii")
             content_parts.append({
                 "type": "input_file",
@@ -94,78 +114,94 @@ class BoqExtractionService:
         # ── GPT call ──
         logger.info("BOQ extraction: starting for project %s", project_id)
         client = get_openai_client()
-        response = await client.responses.create(
-            model="gpt-5.2",
-            instructions=SYSTEM_PROMPT,
-            input=[{"role": "user", "content": content_parts}],
-        )
+        try:
+            response = await client.responses.create(
+                model="gpt-5.2",
+                instructions=SYSTEM_PROMPT,
+                input=[{"role": "user", "content": content_parts}],
+            )
+        except Exception as exc:
+            raise normalize_openai_error("boq_extraction", exc) from exc
 
         raw_text = _extract_text(response)
         parsed = _parse_json(raw_text)
 
         if not isinstance(parsed, dict) or "boq_items" not in parsed:
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="BOQ extraction: AI response missing required key: boq_items",
-            )
+            raise incomplete_ai_response_error("boq_extraction")
 
         boq_items_data = parsed["boq_items"]
+        if not isinstance(boq_items_data, list):
+            raise invalid_ai_response_error("boq_extraction")
+        if not boq_items_data:
+            raise empty_boq_output_error()
+
         logger.info("BOQ extraction complete: %d items", len(boq_items_data))
 
-        # ── Delete old BOQ items ──
-        for doc in boq_docs:
-            await self.boq_repo.delete_by_document_id(doc.id, tenant_id)
+        try:
+            # ── Delete old BOQ items ──
+            for doc in boq_docs:
+                await self.boq_repo.delete_by_document_id(doc.id, tenant_id)
 
-        # ── Store new BOQ items ──
-        boq_models = []
-        for item_data in boq_items_data:
-            row_type = str(item_data.get("type", "boq_item"))
-            if row_type not in ("boq_item", "description", "section_description"):
-                row_type = "boq_item"
-            category = item_data.get("category")
-            if category and category not in VALID_CATEGORIES:
-                category = "special_items"
-            if row_type in ("description", "section_description"):
-                category = None
+            # ── Store new BOQ items ──
+            boq_models = []
+            for item_data in boq_items_data:
+                if not isinstance(item_data, dict):
+                    continue
 
-            quantity = item_data.get("quantity")
-            if row_type in ("description", "section_description"):
-                is_valid = True
-            elif row_type == "boq_item" and item_data.get("description"):
-                is_valid = True
-            else:
-                is_valid = False
+                row_type = str(item_data.get("type", "boq_item"))
+                if row_type not in ("boq_item", "description", "section_description"):
+                    row_type = "boq_item"
+                category = item_data.get("category")
+                if category and category not in VALID_CATEGORIES:
+                    category = "special_items"
+                if row_type in ("description", "section_description"):
+                    category = None
 
-            boq_models.append(
-                BoqItem(
-                    tenant_id=tenant_id,
-                    project_id=project_id,
-                    document_id=boq_doc.id,
-                    row_number=item_data.get("row_number", 0),
-                    description=item_data.get("description"),
-                    quantity=quantity,
-                    unit=item_data.get("unit"),
-                    is_hidden=False,
-                    is_valid=is_valid,
-                    type=row_type,
-                    category=category,
-                    dimensions=_parse_dimensions(item_data, row_type),
+                quantity = item_data.get("quantity")
+                if row_type in ("description", "section_description"):
+                    is_valid = True
+                elif row_type == "boq_item" and item_data.get("description"):
+                    is_valid = True
+                else:
+                    is_valid = False
+
+                boq_models.append(
+                    BoqItem(
+                        tenant_id=tenant_id,
+                        project_id=project_id,
+                        document_id=boq_doc.id,
+                        row_number=item_data.get("row_number", 0),
+                        description=item_data.get("description"),
+                        quantity=quantity,
+                        unit=item_data.get("unit"),
+                        is_hidden=False,
+                        is_valid=is_valid,
+                        type=row_type,
+                        category=category,
+                        dimensions=_parse_dimensions(item_data, row_type),
+                    )
                 )
-            )
 
-        if boq_models:
-            await self.boq_repo.bulk_create(boq_models)
+            if not any(m.type == "boq_item" and m.is_valid for m in boq_models):
+                raise empty_boq_output_error()
 
-        # ── Compute document dominant category ──
-        categorized = [m for m in boq_models if m.type == "boq_item" and m.category]
-        if categorized:
-            cats = [m.category for m in categorized]
-            counter = Counter(cats)
-            dominant, count = counter.most_common(1)[0]
-            confidence = round(count / len(cats), 4)
-            await self.doc_repo.update_document_category(
-                boq_doc.id, tenant_id, dominant, confidence,
-            )
+            if boq_models:
+                await self.boq_repo.bulk_create(boq_models)
+
+            # ── Compute document dominant category ──
+            categorized = [m for m in boq_models if m.type == "boq_item" and m.category]
+            if categorized:
+                cats = [m.category for m in categorized]
+                counter = Counter(cats)
+                dominant, count = counter.most_common(1)[0]
+                confidence = round(count / len(cats), 4)
+                await self.doc_repo.update_document_category(
+                    boq_doc.id, tenant_id, dominant, confidence,
+                )
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise save_output_error("boq_extraction", exc) from exc
 
         return BoqExtractionResult(
             project_id=project_id,
@@ -183,7 +219,7 @@ def _extract_text(response) -> str:
             for block in getattr(item, "content", []):
                 if getattr(block, "type", None) == "output_text":
                     return block.text
-    raise RuntimeError("GPT-5.2 did not return a text response")
+    raise no_ai_text_error("boq_extraction")
 
 
 def _parse_json(raw: str) -> dict:
@@ -195,10 +231,7 @@ def _parse_json(raw: str) -> dict:
         return json.loads(text)
     except json.JSONDecodeError as e:
         logger.error("Failed to parse GPT JSON: %s\nRaw: %s", e, raw[:500])
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="AI returned an invalid response. Please try again.",
-        )
+        raise invalid_ai_response_error("boq_extraction")
 
 
 def _parse_dimensions(item_data: dict, row_type: str) -> list | None:

@@ -1,13 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Cpu, Loader2, AlertCircle, CheckCircle, XCircle, Download, ChevronDown, ChevronUp } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { AlertCircle, CheckCircle, XCircle, Download, ChevronDown, ChevronUp } from 'lucide-react';
 
 import { panelSelectionApi } from '../api/panel-selection.api';
-import type { PanelGroupResult, PanelQuestionAnswer, PanelSelectionJobStatus, PanelSelectionResults } from '../types/panel-selection';
+import type { PanelGroupResult, PanelQuestionAnswer, PanelSelectionResults } from '../types/panel-selection';
 import { Card } from '@/shared/ui/Card';
 import { Button } from '@/shared/ui/Button';
 import { normalizeError } from '@/shared/api/errors';
-
-const POLL_INTERVAL = 3000;
 
 const PANEL_QUESTIONS: Record<string, number[]> = {
   '4007': [2, 3, 21, 14, 17, 18, 20],
@@ -97,28 +95,15 @@ function AnswerBadge({ answer }: { answer: string }) {
 
 interface PanelConfigurationSectionProps {
   projectId: string;
-  onPanelComplete?: () => void;
-  hasSpec?: boolean;
-  readOnly?: boolean;
 }
 
-export function PanelConfigurationSection({ projectId, onPanelComplete, hasSpec = true, readOnly = false }: PanelConfigurationSectionProps) {
-  const [loading, setLoading] = useState(false);
-  const [jobStatus, setJobStatus] = useState<PanelSelectionJobStatus | null>(null);
+export function PanelConfigurationSection({ projectId }: PanelConfigurationSectionProps) {
   const [error, setError] = useState('');
-  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [results, setResults] = useState<PanelSelectionResults | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [answers, setAnswers] = useState<PanelQuestionAnswer[]>([]);
   const [answersExpanded, setAnswersExpanded] = useState(false);
-
-  const stopPolling = useCallback(() => {
-    if (pollingRef.current) {
-      clearInterval(pollingRef.current);
-      pollingRef.current = null;
-    }
-  }, []);
 
   const fetchResults = useCallback(async () => {
     try {
@@ -138,91 +123,10 @@ export function PanelConfigurationSection({ projectId, onPanelComplete, hasSpec 
     }
   }, [projectId]);
 
-  const pollStatus = useCallback(
-    async (jid: string) => {
-      try {
-        const { data } = await panelSelectionApi.getStatus(projectId, jid);
-        setJobStatus(data);
-
-        if (data.status === 'success') {
-          stopPolling();
-          setLoading(false);
-          fetchResults();
-          fetchAnswers();
-          onPanelComplete?.();
-        } else if (data.status === 'failed') {
-          stopPolling();
-          setLoading(false);
-          setError(data.message);
-        }
-      } catch (err) {
-        stopPolling();
-        setLoading(false);
-        setError(normalizeError(err).message);
-      }
-    },
-    [projectId, stopPolling, fetchResults, fetchAnswers, onPanelComplete],
-  );
-
-  useEffect(() => {
-    return () => stopPolling();
-  }, [stopPolling]);
-
   useEffect(() => {
     fetchResults();
     fetchAnswers();
   }, [fetchResults, fetchAnswers]);
-
-  // Check for active job on mount (resume polling if user navigated away)
-  useEffect(() => {
-    panelSelectionApi.getActiveJob(projectId).then(({ data }) => {
-      if (data.active && data.job_id) {
-        setLoading(true);
-        setJobStatus({
-          job_id: data.job_id,
-          status: data.status as 'running',
-          message: data.message || 'Analyzing BOQ for panel configuration...',
-        });
-        pollingRef.current = setInterval(() => {
-          pollStatus(data.job_id!);
-        }, POLL_INTERVAL);
-      }
-    }).catch(() => {});
-  }, [projectId, pollStatus]);
-
-  const doRun = async () => {
-    setLoading(true);
-    setError('');
-    setJobStatus(null);
-
-    try {
-      const { data } = await panelSelectionApi.run(projectId);
-      setJobStatus({
-        job_id: data.job_id,
-        status: 'running',
-        message: 'Analyzing BOQ for panel configuration...',
-      });
-
-      pollingRef.current = setInterval(() => {
-        pollStatus(data.job_id);
-      }, POLL_INTERVAL);
-    } catch (err) {
-      setLoading(false);
-      setError(normalizeError(err).message);
-    }
-  };
-
-  const handleRun = () => {
-    if (!hasSpec) {
-      const confirmed = window.confirm(
-        'No specification PDF has been uploaded for this project. ' +
-        'Panel selection will rely entirely on BOQ data — results may be less accurate without specification context.\n\n' +
-        'Continue without spec?'
-      );
-      if (!confirmed) return;
-    }
-    doRun();
-  };
 
   const handleDownload = () => {
     if (!results || !results.products.length) return;
@@ -291,23 +195,7 @@ export function PanelConfigurationSection({ projectId, onPanelComplete, hasSpec 
             Determine panel type, base unit and child cards from BOQ analysis
           </p>
         </div>
-        {!readOnly && (
-          <Button variant="primary" onClick={handleRun} disabled={loading} isLoading={loading}>
-            <Cpu className="mr-2 h-4 w-4" />
-            {loading ? 'Running...' : 'Run Panel Selection'}
-          </Button>
-        )}
       </div>
-
-      {/* Loading */}
-      {loading && jobStatus && (
-        <Card>
-          <div className="flex items-center justify-center gap-2 py-4 text-sm text-indigo-600">
-            <Loader2 className="h-5 w-5 animate-spin" />
-            <span>{jobStatus.message}</span>
-          </div>
-        </Card>
-      )}
 
       {/* Error */}
       {error && (
@@ -483,14 +371,12 @@ export function PanelConfigurationSection({ projectId, onPanelComplete, hasSpec 
       )}
 
       {/* Empty state */}
-      {!loading && !showResults && !error && (
+      {!showResults && !error && (
         <Card>
           <div className="flex flex-col items-center py-12 text-center">
-            <Cpu className="mb-3 h-10 w-10 text-gray-300" />
             <h3 className="text-lg font-semibold text-gray-900">No panel configuration yet</h3>
             <p className="mt-1 max-w-md text-sm text-gray-500">
-              Click &quot;Run Panel Selection&quot; to determine the panel configuration
-              based on BOQ analysis.
+              Panel configuration results will appear here after the project pipeline completes.
             </p>
           </div>
         </Card>
